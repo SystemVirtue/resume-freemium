@@ -1,15 +1,57 @@
 import React from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { FileText, Sparkles, Download, CreditCard, Star, CheckCircle } from 'lucide-react';
+import { FileText, Sparkles, Download, CreditCard, Star, CheckCircle, User, LogOut } from 'lucide-react';
 
 interface LandingPageProps {
   onStartBuilding: () => void;
+  onShowAuth: () => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onStartBuilding }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onStartBuilding, onShowAuth }) => {
+  const { user, signOut, profile } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+  };
+
   return (
     <div className="min-h-screen bg-background">
+      {/* Navigation Header */}
+      <nav className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-50">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <FileText className="h-8 w-8 text-primary" />
+            <span className="text-xl font-bold text-foreground">Resume Builder</span>
+          </div>
+          
+          <div className="flex items-center space-x-4">
+            {user ? (
+              <>
+                <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                  <User className="h-4 w-4" />
+                  <span>Welcome, {profile?.first_name || user.email}</span>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleSignOut}>
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={onShowAuth}>
+                  Sign In
+                </Button>
+                <Button variant="default" size="sm" onClick={onShowAuth}>
+                  Get Started
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </nav>
+
       {/* Hero Section */}
       <div className="bg-gradient-hero text-primary-foreground">
         <div className="container mx-auto px-4 py-20 text-center">
