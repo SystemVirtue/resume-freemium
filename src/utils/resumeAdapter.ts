@@ -27,7 +27,7 @@ export const adaptResumeDataToLegacy = (resumeData: ResumeData): LegacyResumeDat
  * Generates a plain text version of the resume for downloading
  */
 export const generatePlainTextResume = (resumeData: ResumeData): string => {
-  return `
+  let resume = `
 ${resumeData.basics.name}
 ${resumeData.basics.email} | ${resumeData.basics.phone}
 
@@ -45,6 +45,58 @@ ${resumeData.education.map(edu =>
 ).join('\n')}
 
 SKILLS
-${resumeData.skills.map(skill => `${skill.name} (${skill.level})`).join(', ')}
-  `.trim();
+${resumeData.skills.map(skill => `${skill.name} (${skill.level})`).join(', ')}`;
+
+  // Add optional sections if they have data
+  if (resumeData.projects.length > 0) {
+    resume += `
+
+PROJECTS
+${resumeData.projects.map(project => 
+  `${project.name} (${project.startDate} - ${project.endDate || 'Present'})\n${project.description}\n${project.highlights.join('\n')}`
+).join('\n\n')}`;
+  }
+
+  if (resumeData.volunteer.length > 0) {
+    resume += `
+
+VOLUNTEER EXPERIENCE
+${resumeData.volunteer.map(vol => 
+  `${vol.position} at ${vol.organization} (${vol.startDate} - ${vol.endDate || 'Present'})\n${vol.summary}\n${vol.highlights.join('\n')}`
+).join('\n\n')}`;
+  }
+
+  if (resumeData.awards.length > 0) {
+    resume += `
+
+AWARDS & HONORS
+${resumeData.awards.map(award => 
+  `${award.title} - ${award.awarder} (${award.date})\n${award.summary}`
+).join('\n\n')}`;
+  }
+
+  if (resumeData.certifications.length > 0) {
+    resume += `
+
+CERTIFICATIONS
+${resumeData.certifications.map(cert => 
+  `${cert.name} - ${cert.issuer} (${cert.date})`
+).join('\n')}`;
+  }
+
+  if (resumeData.languages.length > 0) {
+    resume += `
+
+LANGUAGES
+${resumeData.languages.map(lang => `${lang.language} (${lang.fluency})`).join(', ')}`;
+  }
+
+  if (resumeData.interests.length > 0) {
+    resume += `
+
+INTERESTS
+${resumeData.interests.map(interest => interest.name).join(', ')}`;
+  }
+
+  return resume.trim();
 };

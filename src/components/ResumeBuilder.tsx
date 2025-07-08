@@ -68,6 +68,30 @@ export const ResumeBuilder: React.FC = () => {
     setResumeData(prev => ({ ...prev, skills }));
   };
 
+  const updateProjects = (projects: ResumeData['projects']) => {
+    setResumeData(prev => ({ ...prev, projects }));
+  };
+
+  const updateVolunteer = (volunteer: ResumeData['volunteer']) => {
+    setResumeData(prev => ({ ...prev, volunteer }));
+  };
+
+  const updateAwards = (awards: ResumeData['awards']) => {
+    setResumeData(prev => ({ ...prev, awards }));
+  };
+
+  const updateCertifications = (certifications: ResumeData['certifications']) => {
+    setResumeData(prev => ({ ...prev, certifications }));
+  };
+
+  const updateLanguages = (languages: ResumeData['languages']) => {
+    setResumeData(prev => ({ ...prev, languages }));
+  };
+
+  const updateInterests = (interests: ResumeData['interests']) => {
+    setResumeData(prev => ({ ...prev, interests }));
+  };
+
   const handleStripePayment = async () => {
     // Placeholder for Stripe integration
     // This would typically call a Supabase edge function
@@ -95,6 +119,12 @@ export const ResumeBuilder: React.FC = () => {
             onUpdateWork={updateWork}
             onUpdateEducation={updateEducation}
             onUpdateSkills={updateSkills}
+            onUpdateProjects={updateProjects}
+            onUpdateVolunteer={updateVolunteer}
+            onUpdateAwards={updateAwards}
+            onUpdateCertifications={updateCertifications}
+            onUpdateLanguages={updateLanguages}
+            onUpdateInterests={updateInterests}
             onUnlockPremium={handleStripePayment}
           />
         )}

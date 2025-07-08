@@ -5,6 +5,12 @@ import { ProfessionalSummarySection } from '@/components/resume-sections/Profess
 import { WorkExperienceSection } from '@/components/resume-sections/WorkExperienceSection';
 import { EducationSection } from '@/components/resume-sections/EducationSection';
 import { SkillsSection } from '@/components/resume-sections/SkillsSection';
+import { ProjectsSection } from '@/components/resume-sections/ProjectsSection';
+import { VolunteerSection } from '@/components/resume-sections/VolunteerSection';
+import { AwardsSection } from '@/components/resume-sections/AwardsSection';
+import { CertificationsSection } from '@/components/resume-sections/CertificationsSection';
+import { LanguagesSection } from '@/components/resume-sections/LanguagesSection';
+import { InterestsSection } from '@/components/resume-sections/InterestsSection';
 import { ExportSection } from './ExportSection';
 
 interface ResumeEditFormProps {
@@ -13,6 +19,12 @@ interface ResumeEditFormProps {
   onUpdateWork: (work: ResumeData['work']) => void;
   onUpdateEducation: (education: ResumeData['education']) => void;
   onUpdateSkills: (skills: ResumeData['skills']) => void;
+  onUpdateProjects: (projects: ResumeData['projects']) => void;
+  onUpdateVolunteer: (volunteer: ResumeData['volunteer']) => void;
+  onUpdateAwards: (awards: ResumeData['awards']) => void;
+  onUpdateCertifications: (certifications: ResumeData['certifications']) => void;
+  onUpdateLanguages: (languages: ResumeData['languages']) => void;
+  onUpdateInterests: (interests: ResumeData['interests']) => void;
   onUnlockPremium: () => void;
 }
 
@@ -22,6 +34,12 @@ export const ResumeEditForm: React.FC<ResumeEditFormProps> = ({
   onUpdateWork,
   onUpdateEducation,
   onUpdateSkills,
+  onUpdateProjects,
+  onUpdateVolunteer,
+  onUpdateAwards,
+  onUpdateCertifications,
+  onUpdateLanguages,
+  onUpdateInterests,
   onUnlockPremium
 }) => {
   return (
@@ -49,6 +67,36 @@ export const ResumeEditForm: React.FC<ResumeEditFormProps> = ({
       <SkillsSection
         data={resumeData.skills}
         onChange={onUpdateSkills}
+      />
+
+      <ProjectsSection
+        data={resumeData.projects}
+        onChange={onUpdateProjects}
+      />
+
+      <VolunteerSection
+        data={resumeData.volunteer}
+        onChange={onUpdateVolunteer}
+      />
+
+      <AwardsSection
+        data={resumeData.awards}
+        onChange={onUpdateAwards}
+      />
+
+      <CertificationsSection
+        data={resumeData.certifications}
+        onChange={onUpdateCertifications}
+      />
+
+      <LanguagesSection
+        data={resumeData.languages}
+        onChange={onUpdateLanguages}
+      />
+
+      <InterestsSection
+        data={resumeData.interests}
+        onChange={onUpdateInterests}
       />
 
       <ExportSection
