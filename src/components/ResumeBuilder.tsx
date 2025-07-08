@@ -9,11 +9,21 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 import { ResumeData } from '@/types/resume';
 import { adaptResumeDataToLegacy } from '@/utils/resumeAdapter';
 
-export const ResumeBuilder: React.FC = () => {
+interface ResumeBuilderProps {
+  initialData?: ResumeData;
+  resumeId?: string;
+  onBack?: () => void;
+}
+
+export const ResumeBuilder: React.FC<ResumeBuilderProps> = ({ 
+  initialData,
+  resumeId: initialResumeId,
+  onBack
+}) => {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'edit' | 'preview' | 'templates'>('edit');
-  const [resumeId, setResumeId] = useState<string | null>(null);
-  const [resumeData, setResumeData] = useState<ResumeData>({
+  const [resumeId, setResumeId] = useState<string | null>(initialResumeId || null);
+  const [resumeData, setResumeData] = useState<ResumeData>(initialData || {
     basics: {
       name: '',
       email: '',
