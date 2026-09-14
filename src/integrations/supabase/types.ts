@@ -14,6 +14,59 @@ export type Database = {
   }
   public: {
     Tables: {
+      cover_letters: {
+        Row: {
+          context_items: Json
+          created_at: string
+          history: Json
+          id: string
+          job_description: string | null
+          job_source: string | null
+          paragraphs: Json
+          resume_id: string | null
+          style_settings: Json
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          context_items?: Json
+          created_at?: string
+          history?: Json
+          id?: string
+          job_description?: string | null
+          job_source?: string | null
+          paragraphs?: Json
+          resume_id?: string | null
+          style_settings?: Json
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          context_items?: Json
+          created_at?: string
+          history?: Json
+          id?: string
+          job_description?: string | null
+          job_source?: string | null
+          paragraphs?: Json
+          resume_id?: string | null
+          style_settings?: Json
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cover_letters_resume_id_fkey"
+            columns: ["resume_id"]
+            isOneToOne: false
+            referencedRelation: "resumes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number | null
@@ -55,11 +108,14 @@ export type Database = {
       }
       profiles: {
         Row: {
+          ai_model: string | null
+          ai_provider: string | null
           created_at: string | null
           email: string | null
           first_name: string | null
           id: string
           last_name: string | null
+          onboarding_seen: boolean
           paid_templates_access: boolean | null
           subscription_end: string | null
           subscription_status: string | null
@@ -67,11 +123,14 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          ai_model?: string | null
+          ai_provider?: string | null
           created_at?: string | null
           email?: string | null
           first_name?: string | null
           id?: string
           last_name?: string | null
+          onboarding_seen?: boolean
           paid_templates_access?: boolean | null
           subscription_end?: string | null
           subscription_status?: string | null
@@ -79,11 +138,14 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          ai_model?: string | null
+          ai_provider?: string | null
           created_at?: string | null
           email?: string | null
           first_name?: string | null
           id?: string
           last_name?: string | null
+          onboarding_seen?: boolean
           paid_templates_access?: boolean | null
           subscription_end?: string | null
           subscription_status?: string | null
