@@ -12,7 +12,7 @@ interface AutoSaveOptions {
 
 export const useAutoSave = ({ data, resumeId, onSave, delay = 2000 }: AutoSaveOptions) => {
   const { user } = useAuth();
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInitialMount = useRef(true);
 
   useEffect(() => {
