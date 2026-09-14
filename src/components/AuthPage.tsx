@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, User, Mail, Lock, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { lovable } from '@/integrations/lovable/index';
 
 interface AuthPageProps {
   onBack?: () => void;
