@@ -25,7 +25,7 @@ interface ResumeEditFormProps {
   onUpdateCertifications: (certifications: ResumeData['certifications']) => void;
   onUpdateLanguages: (languages: ResumeData['languages']) => void;
   onUpdateInterests: (interests: ResumeData['interests']) => void;
-  onUnlockPremium: () => void;
+  
 }
 
 export const ResumeEditForm: React.FC<ResumeEditFormProps> = ({
@@ -40,7 +40,6 @@ export const ResumeEditForm: React.FC<ResumeEditFormProps> = ({
   onUpdateCertifications,
   onUpdateLanguages,
   onUpdateInterests,
-  onUnlockPremium
 }) => {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -99,10 +98,7 @@ export const ResumeEditForm: React.FC<ResumeEditFormProps> = ({
         onChange={onUpdateInterests}
       />
 
-      <ExportSection
-        resumeData={resumeData}
-        onUnlockPremium={onUnlockPremium}
-      />
+      <ExportSection resumeData={resumeData} />
     </div>
   );
 };

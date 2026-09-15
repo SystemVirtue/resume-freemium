@@ -27,8 +27,6 @@ interface ResumeData {
 
 interface TemplateGalleryProps {
   resumeData: ResumeData;
-  hasAccess: boolean;
-  onUnlockTemplates: () => void;
 }
 
 const templates = [
