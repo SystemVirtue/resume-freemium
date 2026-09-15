@@ -150,10 +150,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStartBuilding, onSho
                 <div className="bg-primary/10 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4 group-hover:bg-primary/20 transition-smooth">
                   <Download className="h-8 w-8 text-primary" />
                 </div>
-                <h3 className="text-xl font-semibold mb-3 text-foreground">Multiple Export Options</h3>
+                <h3 className="text-xl font-semibold mb-3 text-foreground">Import and Export Freely</h3>
                 <p className="text-muted-foreground">
-                  Download your resume as plain text for free, or unlock 
-                  premium PDF templates for just $5.
+                  Bring in an existing resume from a PDF, Word file or plain text,
+                  then download any template as a PDF.
                 </p>
               </CardContent>
             </Card>
@@ -163,10 +163,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStartBuilding, onSho
                 <div className="bg-accent/10 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4 group-hover:bg-accent/20 transition-smooth">
                   <CreditCard className="h-8 w-8 text-accent" />
                 </div>
-                <h3 className="text-xl font-semibold mb-3 text-foreground">One-Time Payment</h3>
+                <h3 className="text-xl font-semibold mb-3 text-foreground">Cover Letter Crafter</h3>
                 <p className="text-muted-foreground">
-                  No subscriptions or hidden fees. Pay once and get 
-                  unlimited access to all premium features.
+                  Turn a job posting and your resume into a tailored cover letter you
+                  can refine paragraph by paragraph.
                 </p>
               </CardContent>
             </Card>
@@ -223,88 +223,42 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStartBuilding, onSho
         </div>
       </div>
 
-      {/* Pricing Section */}
+      {/* Free Section */}
       <div className="py-20 bg-background">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
+          <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold mb-4 text-foreground">
-              Simple, Transparent Pricing
+              Everything Included, Free
             </h2>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Start for free, upgrade when you need premium features
+              Create an account and use every feature — no payment, ever.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            <Card className="border-2">
-              <CardHeader className="text-center">
-                <CardTitle className="text-2xl">Free</CardTitle>
-                <div className="text-4xl font-bold text-foreground">$0</div>
-                <p className="text-muted-foreground">Perfect for getting started</p>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-accent mr-3" />
-                    Resume builder with AI suggestions
+          <Card className="border-2 max-w-2xl mx-auto">
+            <CardContent className="pt-8">
+              <ul className="space-y-3">
+                {[
+                  'Resume builder with AI assistance',
+                  'Import an existing resume from PDF, Word or text',
+                  'All templates, PDF and plain text downloads',
+                  'Cover Letter Crafter with paragraph-by-paragraph control',
+                  'Choose your own AI assistant',
+                ].map((item) => (
+                  <li key={item} className="flex items-center">
+                    <CheckCircle className="h-5 w-5 text-accent mr-3 shrink-0" />
+                    {item}
                   </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-accent mr-3" />
-                    Plain text download
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-accent mr-3" />
-                    Basic templates preview
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-accent mr-3" />
-                    No credit card required
-                  </li>
-                </ul>
-                <Button className="w-full mt-6" variant="outline" onClick={onStartBuilding}>
-                  Start for Free
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card className="border-2 border-primary relative">
-              <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-                <span className="bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm font-medium">
-                  Most Popular
-                </span>
-              </div>
-              <CardHeader className="text-center">
-                <CardTitle className="text-2xl">Premium</CardTitle>
-                <div className="text-4xl font-bold text-foreground">$5</div>
-                <p className="text-muted-foreground">One-time payment, lifetime access</p>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3">
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-accent mr-3" />
-                    Everything in Free
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-accent mr-3" />
-                    5 professional PDF templates
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-accent mr-3" />
-                    High-quality PDF downloads
-                  </li>
-                  <li className="flex items-center">
-                    <CheckCircle className="h-5 w-5 text-accent mr-3" />
-                    ATS-optimized formats
-                  </li>
-                </ul>
-                <Button className="w-full mt-6" onClick={onStartBuilding}>
-                  Start Building Now
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+                ))}
+              </ul>
+              <Button className="w-full mt-6" onClick={onStartBuilding}>
+                Get Started Free
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
+
 
       {/* CTA Section */}
       <div className="py-20 bg-gradient-primary text-primary-foreground">
