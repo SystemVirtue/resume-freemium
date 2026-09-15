@@ -150,10 +150,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStartBuilding, onSho
                 <div className="bg-primary/10 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4 group-hover:bg-primary/20 transition-smooth">
                   <Download className="h-8 w-8 text-primary" />
                 </div>
-                <h3 className="text-xl font-semibold mb-3 text-foreground">Multiple Export Options</h3>
+                <h3 className="text-xl font-semibold mb-3 text-foreground">Import and Export Freely</h3>
                 <p className="text-muted-foreground">
-                  Download your resume as plain text for free, or unlock 
-                  premium PDF templates for just $5.
+                  Bring in an existing resume from a PDF, Word file or plain text,
+                  then download any template as a PDF.
                 </p>
               </CardContent>
             </Card>
@@ -163,10 +163,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onStartBuilding, onSho
                 <div className="bg-accent/10 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4 group-hover:bg-accent/20 transition-smooth">
                   <CreditCard className="h-8 w-8 text-accent" />
                 </div>
-                <h3 className="text-xl font-semibold mb-3 text-foreground">One-Time Payment</h3>
+                <h3 className="text-xl font-semibold mb-3 text-foreground">Cover Letter Crafter</h3>
                 <p className="text-muted-foreground">
-                  No subscriptions or hidden fees. Pay once and get 
-                  unlimited access to all premium features.
+                  Turn a job posting and your resume into a tailored cover letter you
+                  can refine paragraph by paragraph.
                 </p>
               </CardContent>
             </Card>
