@@ -62,11 +62,7 @@ const templates = [
   },
 ];
 
-export const TemplateGallery: React.FC<TemplateGalleryProps> = ({
-  resumeData,
-  hasAccess,
-  onUnlockTemplates,
-}) => {
+export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ resumeData }) => {
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
 
   const generateTemplateHTML = (templateId: string): string => {
