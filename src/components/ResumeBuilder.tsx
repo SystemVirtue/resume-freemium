@@ -49,7 +49,7 @@ export const ResumeBuilder: React.FC<ResumeBuilderProps> = ({
     interests: [],
     languages: []
   });
-  const [hasTemplatePaid, setHasTemplatePaid] = useState(false);
+  
 
   // Auto-save functionality
   useAutoSave({
@@ -102,14 +102,6 @@ export const ResumeBuilder: React.FC<ResumeBuilderProps> = ({
     setResumeData(prev => ({ ...prev, interests }));
   };
 
-  const handleStripePayment = async () => {
-    // Placeholder for Stripe integration
-    // This would typically call a Supabase edge function
-    toast({
-      title: "Payment Required",
-      description: "Connect to Supabase to enable Stripe payments for premium templates."
-    });
-  };
 
   // Convert to legacy format for compatibility
   const legacyResumeData = adaptResumeDataToLegacy(resumeData);
@@ -135,7 +127,6 @@ export const ResumeBuilder: React.FC<ResumeBuilderProps> = ({
             onUpdateCertifications={updateCertifications}
             onUpdateLanguages={updateLanguages}
             onUpdateInterests={updateInterests}
-            onUnlockPremium={handleStripePayment}
           />
         )}
 
@@ -144,11 +135,7 @@ export const ResumeBuilder: React.FC<ResumeBuilderProps> = ({
         )}
 
         {activeTab === 'templates' && (
-          <TemplateGallery 
-            resumeData={legacyResumeData} 
-            hasAccess={hasTemplatePaid}
-            onUnlockTemplates={handleStripePayment}
-          />
+          <TemplateGallery resumeData={legacyResumeData} />
         )}
       </div>
     </div>
