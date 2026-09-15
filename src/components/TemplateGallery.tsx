@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Download, Lock, Eye } from 'lucide-react';
+import { Download, Eye } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
@@ -188,10 +188,6 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ resumeData }) 
   };
 
   const downloadPDF = async (templateId: string) => {
-    if (!hasAccess) {
-      onUnlockTemplates();
-      return;
-    }
 
     try {
       const htmlContent = generateTemplateHTML(templateId);
@@ -235,15 +231,10 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ resumeData }) 
     <div className="max-w-6xl mx-auto">
       <Card>
         <CardHeader>
-          <CardTitle>Premium Resume Templates</CardTitle>
-          {!hasAccess && (
-            <div className="bg-accent/10 border border-accent/20 rounded-lg p-4">
-              <p className="text-accent-foreground">
-                <Lock className="h-4 w-4 inline mr-2" />
-                Unlock all premium templates for a one-time payment of $5 USD
-              </p>
-            </div>
-          )}
+          <CardTitle>Resume Templates</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Every template is free — preview it, then download it as a PDF.
+          </p>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -275,45 +266,15 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ resumeData }) 
                       <Eye className="h-4 w-4 mr-1" />
                       Preview
                     </Button>
-                    <Button
-                      variant={hasAccess ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => downloadPDF(template.id)}
-                    >
-                      {hasAccess ? (
-                        <>
-                          <Download className="h-4 w-4 mr-1" />
-                          Download
-                        </>
-                      ) : (
-                        <>
-                          <Lock className="h-4 w-4 mr-1" />
-                          $5
-                        </>
-                      )}
+                    <Button size="sm" onClick={() => downloadPDF(template.id)}>
+                      <Download className="h-4 w-4 mr-1" />
+                      Download PDF
                     </Button>
                   </div>
                 </CardContent>
-                {!hasAccess && (
-                  <div className="absolute inset-0 bg-black/10 flex items-center justify-center">
-                    <Lock className="h-8 w-8 text-white drop-shadow-lg" />
-                  </div>
-                )}
               </Card>
             ))}
           </div>
-          
-          {!hasAccess && (
-            <div className="text-center mt-8">
-              <Button
-                variant="hero"
-                size="xl"
-                onClick={onUnlockTemplates}
-              >
-                Unlock All Templates - $5 USD
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>
