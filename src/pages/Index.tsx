@@ -13,6 +13,7 @@ const Index = () => {
   const [showBuilder, setShowBuilder] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [showCoverLetter, setShowCoverLetter] = useState(false);
   const [editingResume, setEditingResume] = useState<{ data: ResumeData; id: string } | null>(null);
 
   if (loading) {
