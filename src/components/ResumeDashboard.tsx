@@ -25,12 +25,14 @@ interface Resume {
 interface ResumeDashboardProps {
   onCreateNew: () => void;
   onEditResume: (resumeData: ResumeData, resumeId: string) => void;
+  onOpenCoverLetter: () => void;
   onBack: () => void;
 }
 
 export const ResumeDashboard: React.FC<ResumeDashboardProps> = ({
   onCreateNew,
   onEditResume,
+  onOpenCoverLetter,
   onBack
 }) => {
   const { user } = useAuth();
@@ -199,10 +201,16 @@ export const ResumeDashboard: React.FC<ResumeDashboardProps> = ({
                 <p className="text-muted-foreground">Manage and organize your professional resumes</p>
               </div>
             </div>
-            <Button onClick={onCreateNew}>
-              <Plus className="h-4 w-4 mr-2" />
-              Create New Resume
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={onOpenCoverLetter}>
+                <FileText className="h-4 w-4 mr-2" />
+                Cover Letter Crafter
+              </Button>
+              <Button onClick={onCreateNew}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create New Resume
+              </Button>
+            </div>
           </div>
         </div>
       </div>

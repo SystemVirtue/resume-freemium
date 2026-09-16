@@ -4,6 +4,7 @@ import { LandingPage } from '@/components/LandingPage';
 import { ResumeBuilder } from '@/components/ResumeBuilder';
 import { AuthPage } from '@/components/AuthPage';
 import { ResumeDashboard } from '@/components/ResumeDashboard';
+import { CoverLetterCrafter } from '@/components/cover-letter/CoverLetterCrafter';
 import { ResumeData } from '@/types/resume';
 import { Loader2 } from 'lucide-react';
 
