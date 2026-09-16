@@ -4,6 +4,7 @@ import { LandingPage } from '@/components/LandingPage';
 import { ResumeBuilder } from '@/components/ResumeBuilder';
 import { AuthPage } from '@/components/AuthPage';
 import { ResumeDashboard } from '@/components/ResumeDashboard';
+import { CoverLetterCrafter } from '@/components/cover-letter/CoverLetterCrafter';
 import { ResumeData } from '@/types/resume';
 import { Loader2 } from 'lucide-react';
 
@@ -12,6 +13,7 @@ const Index = () => {
   const [showBuilder, setShowBuilder] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [showCoverLetter, setShowCoverLetter] = useState(false);
   const [editingResume, setEditingResume] = useState<{ data: ResumeData; id: string } | null>(null);
 
   if (loading) {
@@ -26,9 +28,24 @@ const Index = () => {
     return <AuthPage onBack={() => setShowAuth(false)} />;
   }
 
+  if (showCoverLetter && user) {
+    return (
+      <CoverLetterCrafter
+        onBack={() => {
+          setShowCoverLetter(false);
+          setShowDashboard(true);
+        }}
+      />
+    );
+  }
+
   if (showDashboard) {
     return (
       <ResumeDashboard
+        onOpenCoverLetter={() => {
+          setShowDashboard(false);
+          setShowCoverLetter(true);
+        }}
         onCreateNew={() => {
           setShowDashboard(false);
           setShowBuilder(true);
