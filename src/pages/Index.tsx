@@ -28,9 +28,24 @@ const Index = () => {
     return <AuthPage onBack={() => setShowAuth(false)} />;
   }
 
+  if (showCoverLetter && user) {
+    return (
+      <CoverLetterCrafter
+        onBack={() => {
+          setShowCoverLetter(false);
+          setShowDashboard(true);
+        }}
+      />
+    );
+  }
+
   if (showDashboard) {
     return (
       <ResumeDashboard
+        onOpenCoverLetter={() => {
+          setShowDashboard(false);
+          setShowCoverLetter(true);
+        }}
         onCreateNew={() => {
           setShowDashboard(false);
           setShowBuilder(true);
