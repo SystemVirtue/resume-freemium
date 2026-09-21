@@ -13,6 +13,8 @@ interface SourceInputProps {
   rows?: number;
   /** 'job' trims job-listing boilerplate and offers the full text back. */
   mode?: ExtractMode;
+  /** Fired when the user finishes a paste or leaves the field — never per keystroke. */
+  onCommit?: (text: string) => void;
 }
 
 /** Text box plus file upload and link import, all resolving to structured plain text. */
@@ -22,19 +24,32 @@ export const SourceInput: React.FC<SourceInputProps> = ({
   placeholder,
   rows = 8,
   mode = 'plain',
+  onCommit,
 }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [trim, setTrim] = useState<{ removed: number; full: string } | null>(null);
+  // Latest value, readable from timers and async continuations that outlive a render.
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   const append = (base: string, text: string) => (base.trim() ? `${base.trim()}\n\n${text}` : text);
 
+  // Paste commits on a short delay so one multi-block paste fires once, not per block,
+  // and so React has applied the pasted text before the commit reads it.
+  const handlePaste = () => {
+    if (!onCommit) return;
+    window.setTimeout(() => onCommit(valueRef.current), 80);
+  };
+
   const wrap = async (fn: () => Promise<ExtractResult>) => {
     setBusy(true);
+    let committed = value;
     try {
       const result = await fn();
-      onChange(append(value, result.text));
+      committed = append(value, result.text);
+      onChange(committed);
       setTrim(
         result.trimmed && result.fullText
           ? { removed: result.removedChars, full: append(value, result.fullText) }
@@ -44,6 +59,8 @@ export const SourceInput: React.FC<SourceInputProps> = ({
       toast({ title: 'Could not read that', description: err?.message, variant: 'destructive' });
     } finally {
       setBusy(false);
+      // An imported file or link is a deliberate, finished input — commit it.
+      onCommit?.(committed);
     }
   };
 
@@ -54,6 +71,8 @@ export const SourceInput: React.FC<SourceInputProps> = ({
         rows={rows}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={() => onCommit?.(value)}
+        onPaste={handlePaste}
       />
       {trim && (
         <p className="text-xs text-muted-foreground">

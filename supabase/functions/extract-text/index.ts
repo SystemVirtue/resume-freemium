@@ -86,6 +86,19 @@ const BOILERPLATE = [
   /^\d+\s*(d|h|m)\s*ago$/i,
 ];
 
+/** Lines that are social-media junk, not ad content: hashtags, @handles, emoji-only lines. */
+function isSocialNoise(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  // A hashtag wall or single hashtag (e.g. "#hiring #TAU #designjobs")
+  if (/^(#[A-Za-z0-9_]+[\s,]*)+$/.test(t)) return true;
+  // A single @handle
+  if (/^@[A-Za-z0-9_.]+$/.test(t)) return true;
+  // Emoji/symbol-only line (no letters or digits at all)
+  if (!/[\p{L}\p{N}]/u.test(t)) return true;
+  return false;
+}
+
 const AD_START = /(about (the|this) (role|position|opportunity)|the (role|opportunity|position)|position description|job description|role description|about (us|the company)|what you'?ll (do|be doing)|key responsibilities|responsibilities|the opportunity)/i;
 const AD_END = /(how to apply|to apply|apply now|similar jobs|report this job|you may also be interested|job details|save this job|share this job)/i;
 
@@ -97,7 +110,7 @@ function trimJobAd(text: string): { text: string; removedChars: number } {
   lines = lines.filter((line) => {
     const t = line.replace(/^##\s*/, '').trim();
     if (!t) return true;
-    return !BOILERPLATE.some((re) => re.test(t));
+    return !BOILERPLATE.some((re) => re.test(t)) && !isSocialNoise(t);
   });
 
   let body = lines.join('\n');
