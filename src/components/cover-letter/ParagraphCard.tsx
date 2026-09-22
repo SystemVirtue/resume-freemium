@@ -6,11 +6,15 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Bell,
+  Flag,
   Lock,
   LockOpen,
   Plus,
   Quote,
   RefreshCw,
+  Repeat,
+  Scale,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -30,6 +34,11 @@ interface ParagraphCardProps {
   onInsertAbove: () => void;
 }
 
+/**
+ * One flag area, three distinct kinds of problem told apart at a glance:
+ * red for factual problems (unsupported, misattributed, ad echoes),
+ * primary for rule conflicts, amber for repetition flags.
+ */
 export const ParagraphCard: React.FC<ParagraphCardProps> = ({
   paragraph,
   index,
@@ -44,13 +53,23 @@ export const ParagraphCard: React.FC<ParagraphCardProps> = ({
   onInsertAbove,
 }) => {
   const unsupported = paragraph.unsupported?.filter(Boolean) || [];
+  const misattributed = paragraph.misattributed?.filter(Boolean) || [];
   const echoes = paragraph.echoes?.filter(Boolean) || [];
-  const sources = paragraph.sources?.filter(Boolean) || [];
+  const ruleFlags = paragraph.ruleFlags?.filter((r) => r.rule || r.fragment) || [];
+  const repetition = paragraph.repetition?.filter(Boolean) || [];
+  const sources = paragraph.sources?.filter((s) => s.source || s.claim) || [];
+  const factualCount = unsupported.length + misattributed.length + echoes.length;
 
   return (
     <Card
       className={
-        unsupported.length ? 'border-destructive/60' : paragraph.locked ? 'border-primary/50' : undefined
+        factualCount > 0
+          ? 'border-destructive/60'
+          : ruleFlags.length > 0 || repetition.length > 0
+            ? 'border-primary/40'
+            : paragraph.locked
+              ? 'border-primary/50'
+              : undefined
       }
     >
       <CardContent className="pt-4 space-y-3">
@@ -79,31 +98,112 @@ export const ParagraphCard: React.FC<ParagraphCardProps> = ({
           onChange={(e) => onEdit(e.target.value)}
         />
 
-        {unsupported.length > 0 && (
-          <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 space-y-1">
-            <p className="flex items-center gap-1 text-xs font-medium text-destructive">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              Not supported by your background — check or remove
-            </p>
-            {unsupported.map((s, i) => (
-              <p key={i} className="text-xs text-muted-foreground">
-                “{s}”
-              </p>
-            ))}
+        {(factualCount > 0 || ruleFlags.length > 0 || repetition.length > 0) && (
+          <div
+            className={`rounded-md border p-3 space-y-2 ${
+              factualCount > 0
+                ? 'border-destructive/50 bg-destructive/5'
+                : ruleFlags.length > 0
+                  ? 'border-primary/50 bg-primary/5'
+                  : 'border-amber-500/50 bg-amber-500/5'
+            }`}
+          >
+            {unsupported.length > 0 && (
+              <div>
+                <p className="flex items-center gap-1 text-xs font-medium text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Not supported by your background — check or remove
+                </p>
+                {unsupported.map((s, i) => (
+                  <p key={`u${i}`} className="text-xs text-muted-foreground">
+                    “{s}”
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {misattributed.length > 0 && (
+              <div>
+                <p className="flex items-center gap-1 text-xs font-medium text-destructive">
+                  <Scale className="h-3.5 w-3.5" />
+                  Credited to the wrong employer or context
+                </p>
+                {misattributed.map((s, i) => (
+                  <p key={`m${i}`} className="text-xs text-muted-foreground">
+                    {s}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {echoes.length > 0 && (
+              <div>
+                <p className="flex items-center gap-1 text-xs font-medium text-destructive">
+                  <Flag className="h-3.5 w-3.5" />
+                  Echoes the ad's wording
+                </p>
+                {echoes.map((s, i) => (
+                  <p key={`e${i}`} className="text-xs text-muted-foreground">
+                    “{s}”
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {ruleFlags.length > 0 && (
+              <div>
+                <p className="flex items-center gap-1 text-xs font-medium text-primary">
+                  <Bell className="h-3.5 w-3.5" />
+                  Rule conflicts
+                </p>
+                {ruleFlags.map((r, i) => (
+                  <p key={`r${i}`} className="text-xs text-muted-foreground">
+                    {r.fragment ? (
+                      <>
+                        Breaks your rule “{r.rule}”: “{r.fragment}”
+                      </>
+                    ) : (
+                      <>Breaks your rule: {r.rule}</>
+                    )}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {repetition.length > 0 && (
+              <div>
+                <p className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                  <Repeat className="h-3.5 w-3.5" />
+                  Repetition
+                </p>
+                {repetition.map((s, i) => (
+                  <p key={`p${i}`} className="text-xs text-muted-foreground">
+                    {s}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {echoes.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            Echoes the ad's wording: {echoes.map((e) => `“${e}”`).join(', ')}
-          </p>
-        )}
-
         {sources.length > 0 && (
-          <p className="flex items-start gap-1 text-xs text-muted-foreground">
-            <Quote className="mt-0.5 h-3 w-3 shrink-0" />
-            <span>Sources: {sources.join(' · ')}</span>
-          </p>
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Sources</p>
+            {sources.map((s, i) => (
+              <p key={`s${i}`} className="flex items-start gap-1 text-xs text-muted-foreground">
+                <Quote className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>
+                  {s.claim ? (
+                    <>
+                      “{s.claim}” — {s.source}
+                    </>
+                  ) : (
+                    s.source
+                  )}
+                </span>
+              </p>
+            ))}
+          </div>
         )}
 
         <div className="flex flex-wrap gap-2">

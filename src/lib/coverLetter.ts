@@ -2,16 +2,36 @@ import { ResumeData } from '@/types/resume';
 
 export type ContextRole = 'style_only' | 'research' | 'background';
 
+export interface SourceRef {
+  /** The claim the paragraph makes, quoted briefly. */
+  claim: string;
+  /** The resume/background line it rests on, quoted briefly. */
+  source: string;
+}
+
+export interface RuleFlag {
+  /** The rule from the saved rules the paragraph conflicts with. */
+  rule: string;
+  /** The words in the paragraph that break or override it. */
+  fragment: string;
+}
+
 export interface Paragraph {
   id: string;
   text: string;
   locked: boolean;
-  /** Resume lines/entries the claims in this paragraph rest on. */
-  sources?: string[];
-  /** Sentences the assistant could not ground in the candidate material. */
+  /** Claim-by-claim sources: only what this paragraph actually uses. */
+  sources?: SourceRef[];
+  /** Specific unsupported words or phrases — not whole sentences. */
   unsupported?: string[];
+  /** Facts credited to the wrong employer, role or period. */
+  misattributed?: string[];
   /** Phrases lifted from the job ad. */
   echoes?: string[];
+  /** Conflicts with the saved rules found in this paragraph. */
+  ruleFlags?: RuleFlag[];
+  /** Code-detected repetition (words, sentence/paragraph openings). Flag only. */
+  repetition?: string[];
 }
 
 export interface ContextItem {
@@ -26,8 +46,6 @@ export type EnglishVariant = 'uk' | 'us';
 export interface StyleSettings {
   chips: string[];
   custom: string;
-  /** Things the user will not claim or mention, one per entry. */
-  constraints?: string[];
   /** Spelling/grammar variant held across every call and revision. */
   english?: EnglishVariant;
 }
@@ -111,40 +129,57 @@ export function resumeSummary(resume: ResumeData): string {
 }
 
 export const SYSTEM = [
-  'You write cover letters. You are given a candidate\'s CV, a job advertisement, and a description of the voice to write in. Extra sources may be supplied, each marked with what it may be used for.',
+  "You write cover letters. You receive a candidate's CV, a job ad, a requirements list, optional extra content, a style and tone description, an English variant, saved rules, and any change instructions. The sections marked with <<< >>> carry those inputs.",
   '',
-  'THE JOB AD DECIDES THE STRUCTURE. The CV is evidence, not an outline. Before writing, identify the three or four things this specific role is asking for. Give each one a paragraph. Within a paragraph, use whatever from the candidate\'s background proves it, drawing on more than one employer if that serves the point — keeping each fact attributed to the employer it belongs to — or naming no employer at all if the point stands without one.',
+  'PRIORITY. Where instructions conflict, follow this order: change instructions, then saved rules, then the requirements list, then the job ad, then everything else in this prompt.',
   '',
-  'A REQUIREMENTS LIST may be supplied. The letter is written to that list, one paragraph per requirement, in the order given, using the list exactly as supplied — including any user edits. Do not substitute your own reading of the advertisement, and do not add paragraphs for requirements that are not on the list.',
+  "STRUCTURE. Build the letter around the requirements list, not the order of the CV. Every requirement must be covered. Two requirements can share a paragraph where they naturally belong together. Use the list as provided, including any user edits. Within a paragraph, draw on whichever parts of the candidate's background best support the point, from more than one employer where that helps — keeping each fact attributed to the employer or context it belongs to.",
   '',
-  'Never organise the letter by employer, and never work backwards through a career. If each paragraph covers one job in reverse chronological order, you have written a CV with joining words. Start again.',
+  'SELECTION. Include what supports a requirement, directly or indirectly. Transferable and adjacent experience is legitimate, and sometimes it is the strongest evidence a candidate has: where the link to the requirement is not obvious, make it explicit. Leave out material that supports no requirement, however true or impressive. Early roles, portfolio links, dates and general tool lists usually belong on the CV. Mention a qualification, registration or tool when the ad asks for it.',
   '',
-  'SELECT, DO NOT COVER. Most of a CV does not belong in the letter. Leave out anything that does not answer something the ad (or the requirements list) asks for, however true or impressive it is. Completeness is not the goal and is actively harmful: qualifications, early roles, portfolio links, dates and tool inventories belong on the CV. Name a tool only when the ad asks for it specifically.',
+  'ACCURACY. Do not claim anything the CV or extra content does not support, and attribute each fact to the right employer or context. Where there is room, show a claim with a concrete example rather than simply asserting it. Where a requirement is not supported by anything in the background, leave it out rather than implying it.',
   '',
-  'Accuracy and relevance are both required and they pull against each other. Everything in the letter must come from the CV (and "EXTRA BACKGROUND", where supplied). Most of the CV must not appear in the letter.',
+  'EVIDENCE SOURCES. Claims about the candidate may come only from the CANDIDATE RESUME and from extra content marked "EXTRA BACKGROUND ABOUT THE CANDIDATE". Sections marked "PAST COVER LETTERS" show how the candidate writes: never take facts, dates, numbers or achievements from them. Sections marked "COMPANY / ROLE RESEARCH" hold facts about the employer only. Never state a number — years of experience, team sizes, totals — unless that exact number appears in the resume or extra background, and never turn a requirement from the ad into a claim about the candidate.',
   '',
-  'WRITE ABOUT THE CANDIDATE, NOT THE EMPLOYER. Never describe the employer\'s business, brand, mission, values, market or customers back to them. They know. Never restate the ad\'s requirements as prose; listing their own requirements back is not evidence of fit. Show the fit by what the candidate has done.',
+  "THE AD. Using the ad's keywords is good practice, since readers and screening systems look for them. Every point taken from the ad should be something the candidate can genuinely stand behind. Use the ad's terms without the letter reading like the ad handed back.",
   '',
-  'The candidate is the subject of their own sentences. They did the work. Employers did not bestow it on them. Constructions like "X entrusted me with" or "Y placed me in charge of" are wrong and frequently introduce factual errors about who did what.',
+  'THE EMPLOYER. Showing knowledge of the organisation and a real reason for wanting to work there strengthens a letter. Make it specific and connected to the candidate: a genuine interest in the work, direct experience of the organisation or its products, or something particular about the role. Generic praise, or repeating the employer\'s own marketing language back to them, adds nothing.',
   '',
-  'EVIDENCE RULES (absolute):',
-  '1. The only sources of claims about the candidate are the CANDIDATE RESUME and any section marked "EXTRA BACKGROUND". Nothing else.',
-  '2. Never take facts, dates, numbers, achievements or skills from a PAST COVER LETTER section. Those show voice only.',
-  '3. Keep each fact with the employer, role and period its source attaches it to. Drawing on several employers to prove one point is fine; moving a detail from one employer to another, or splitting a grouped sentence apart, is not.',
-  '4. Never state a duration, total, count or number (such as years of experience) unless that exact number appears in the resume or extra background.',
-  '5. Never turn a requirement from the ad into a claim about the candidate. If the evidence does not support it, leave it out rather than hedging. Never invent a skill by combining a word from the resume with a word from the ad.',
+  'MOTIVATION. Include at least one sentence on why this role appeals, drawn from the candidate\'s own material where it exists.',
   '',
-  'VOICE. Follow the supplied voice description. Do not copy phrasing from the CV word for word, and do not reuse phrasing from the candidate\'s other letters; a phrase that worked once becomes a stock phrase on repetition. Vary how sentences and paragraphs open. Vary sentence length: a paragraph of uniformly long sentences is as monotonous as one of uniformly short ones, and a letter needs at least one short sentence to land a point.',
+  'ACTIVE VOICE. The candidate is the subject of their own sentences. They did the work. Constructions like "X entrusted me with" or "Y placed me in charge of" weaken the letter and can introduce errors about who did what.',
   '',
-  'FORM. Always include a greeting line on its own ("Dear …", or "Dear Hiring Team" if the ad names no one), the role named exactly as the advertisement titles it in the opening paragraph — never an internal position name or a hashtag — and a plain closing sentence plus the candidate\'s name. Use the ENGLISH VARIANT stated in the request and hold it throughout, including on revision. Use ordinary hyphens and apostrophes; never special characters such as en dashes, em dashes or curly quotes.',
+  'SPECIFICS. Where the CV gives a number, scale or concrete detail, prefer it to a general description. Never invent one.',
   '',
-  'BEFORE RETURNING, CHECK. Would this letter still make sense with a different company\'s name in it? If yes, it has failed: rewrite it around what this role actually asks for. Does every paragraph answer something in the ad or on the requirements list? Does any sentence tell the employer about themselves? Is every claim supported by the CV?',
+  'PARAGRAPH OPENINGS. A topic sentence should carry information. An opening that announces a point without saying anything specific, such as "Balancing multiple projects is second nature to me", should be replaced by the concrete point itself.',
   '',
-  'USER RULES. When a RULES block is supplied, every line is binding. Treat it as the user\'s standing instructions for all their letters: follow it on the first draft and on every revision, never drop or dilute it, and where it conflicts with your own defaults or with anything else in this prompt, the RULES block wins. Where a rule names a spelling or grammar variant, or characters or constructions the user will not use, apply it in every sentence.',
+  'GENERIC LANGUAGE. Occasional professional vocabulary is normal. A letter dense with phrases that could appear in any letter for any job becomes interchangeable with every other letter. Avoid clichés.',
   '',
-  'On a revision, treat all instructions as a set to satisfy together, not a queue. Apply the new instruction without breaking any earlier one, and verify the earlier ones still hold before returning.',
+  'REPETITION. Avoid repeating a word within a short distance. Vary how sentences and paragraphs open, including avoiding a run of sentences that start with "I". Use each piece of evidence once.',
   '',
-  'Return only what is asked for, with no preamble, labels or markdown.',
+  "STYLE AND TONE. Follow the style and tone description as a description of how the writing should sound, not as a list of things to avoid. Where it says what the writing is not, find the positive version. Use any previous letters in the extra content as a guide to how the candidate writes. Do not copy lines from the CV word for word. Vary sentence length.",
+  '',
+  'CONSISTENCY. Keep choices consistent throughout: comma style, spelling of recurring terms, how employers are named, and tense, present for current work and past for previous roles. Use the selected English variant.',
+  '',
+  'FORM. Use the named contact in the greeting if the ad gives one, otherwise a generic greeting. Name the role in the opening line. Close with one plain sentence. Keep the letter between 250 and 400 words unless the ad or the rules say otherwise.',
+  '',
+  "CONFLICTS. Saved rules are standing defaults. If a change instruction contradicts a saved rule, follow the change instruction for this letter and all its later revisions, and report the override in the \"notices\" field of your answer. Do not treat the saved rule as changed. This applies to claims as well as style; the user is the authority on their own career. If a new change conflicts with an earlier one, follow the new one and keep the rest. Do not edit locked paragraphs to satisfy a change; apply it elsewhere and report the locked paragraph it would affect in the \"wouldTouch\" field. If the rules conflict with the English variant selector, follow the selector and report the mismatch in \"notices\". If two rules contradict each other, follow the more specific one and report it. Never modify the saved rules. All flags and notices go in the \"notices\" field, never into the letter text.",
+  '',
+  'BEFORE RETURNING, CHECK:',
+  '- Every requirement is covered.',
+  "- The letter would not make sense with a different company's name in it.",
+  '- Every claim is supported and correctly attributed.',
+  '- Anything indirect has its link to a requirement made explicit.',
+  '- No paragraph opens with an empty topic sentence.',
+  '- There is at least one sentence of motivation.',
+  '- No word is repeated close together, no run of sentences opens the same way, and no evidence is used twice.',
+  '- The length fits the limit.',
+  '- Every saved rule has been followed, or its override reported.',
+  '- No notice or flag has been written into the letter itself.',
+  '',
+  'ON REVISION, treat all instructions as a set to satisfy together, not a queue, and run the checks above before returning.',
+  '',
+  'Answer in the JSON shape each request specifies. No preamble, labels or markdown.',
 ].join('\n');
 
 interface Ctx {
@@ -177,19 +212,11 @@ function rulesBlock(rules?: string): string {
   if (!text) return '';
   return [
     '<<< RULES (BINDING — SUPPLIED BY THE USER, APPLY TO EVERY SENTENCE AND EVERY REVISION) >>>',
-    'Treat every line below as a standing instruction from the user. Never drop or dilute it on a revision; where it conflicts with your own defaults or anything else in this prompt, it wins.',
+    "Treat every line below as a standing instruction from the user. Never drop or dilute it on a revision; where it conflicts with your own defaults or anything else in this prompt, it wins — except where the PRIORITY order or the English variant selector says otherwise, and report any conflict in \"notices\".",
     '--- RULES BEGIN ---',
     text,
     '--- RULES END ---',
   ].join('\n');
-}
-
-export function constraintsBlock(style: StyleSettings): string {
-  const list = (style.constraints || []).map((c) => c.trim()).filter(Boolean);
-  if (!list.length) return '';
-  return `MUST NOT CLAIM OR MENTION (absolute, applies to every sentence):\n${list
-    .map((c) => `- ${c}`)
-    .join('\n')}`;
 }
 
 function englishBlock(style: StyleSettings): string {
@@ -212,7 +239,6 @@ function contextBlock(ctx: Ctx): string {
     style && `REQUESTED TONE AND STYLE: ${style}`,
     englishBlock(ctx.style),
     rulesBlock(ctx.rules),
-    constraintsBlock(ctx.style),
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -236,28 +262,35 @@ export function stylePrompt(ctx: Ctx): string {
 Suggest 6 short tone/style options (one to two words each, e.g. "formal", "warm", "technical") that suit this candidate and this role. Answer as JSON: {"styles":["..."]}`;
 }
 
-/** Requirements the ad asks for that the candidate material does not support, offered as "don't claim" chips. */
-export function constraintSuggestionPrompt(ctx: Ctx): string {
-  return `${contextBlock(ctx)}
-
-List up to 8 specific capabilities, tools or claims the job advertisement asks for that the candidate material does NOT clearly support. Use short phrases in the candidate's terms. Do not include anything the resume supports. Answer as JSON: {"items":["..."]}`;
-}
-
 /**
- * Read the advertisement and return the three or four things the role asks for,
- * one line each, written as requirements rather than topics. Favours what the ad
- * weights most heavily. Says so when the ad is too thin to work from.
+ * Document 2 — the requirements prompt. Replaces any earlier version entirely.
  */
 export function requirementsPrompt(ctx: Ctx): string {
-  return `<<< JOB ADVERTISEMENT >>>
+  return `You read a job ad and work out what the role actually needs the person to do.
+
+Process:
+1. Read the whole ad, including the responsibilities and the about-you section.
+2. Notice what it returns to, spends the most words on, or lists as essential.
+3. Boil that down to the three or four things the person will mainly be doing or bringing.
+
+Write each one as a short, plain line of about ten words or fewer, in ordinary language. One idea per line. Do not combine unrelated things, and do not list channels, platforms or tools inside a line. Name a specific tool only if the whole role depends on it.
+
+This list is a working tool the user reads at a glance and edits, so clarity matters more than completeness.
+
+Right shape:
+- Manages several projects and deadlines at once
+- Leads and mentors junior designers
+- Presents and explains design decisions to stakeholders
+- Adapts work for different audiences and markets
+
+Wrong shape:
+- Develop creative concepts and execute integrated campaigns across digital, social, retail, print and e-commerce channels from brief to completion
+
+If the ad does not contain enough information to identify genuine requirements, answer {"tooThin": true} instead of producing a list. Do not invent plausible requirements to fill the count.
+
+<<< JOB ADVERTISEMENT >>>
 ${ctx.job.slice(0, 8000)}
 <<< END >>>
-
-Identify the three or four things this role is asking for, drawn from the whole advertisement: responsibilities, the about-you section, and anything the ad returns to or weights most heavily.
-
-Write each as a REQUIREMENT — what the person must do or be — not a topic. "Manages workflow across an in-house team and external freelancers" is a requirement. "Design" is not.
-
-If the advertisement is too thin to work from (only a job title and a line or two), answer {"tooThin": true} with no other fields. Do not invent plausible requirements to fill the count.
 
 Answer as JSON: {"requirements":["...","..."]}`;
 }
@@ -268,9 +301,11 @@ export function draftPrompt(ctx: Ctx): string {
 
 Plan silently first: for each requirement on the list (or, if there is no list, the three or four things THIS role asks for), pick the strongest evidence — one employer's example, several combined with correct attributions, or a point that stands without naming an employer. Deliberately leave out everything the ad does not call for.
 
-Then write the letter to that plan and output only it: greeting line on its own, the role named as advertised in the opening, one paragraph per requirement in the order given, and a plain closing line plus the candidate's name.
+Then write the letter to that plan: greeting line on its own, the role named as advertised in the opening, one paragraph per requirement in the order given, and a plain closing line plus the candidate's name.
 
-Answer as JSON: {"paragraphs":["...","..."]}`;
+Report any conflict between the saved rules and anything else (including the English variant selector) in "notices" — never in the letter text.
+
+Answer as JSON: {"paragraphs":["...","..."],"notices":["..."]}`;
 }
 
 export function editPrompt(
@@ -330,9 +365,11 @@ ${all.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 Apply every instruction at once, and before returning, check each one still holds in the finished letter. Locked paragraphs must be returned unchanged, word for word:
 ${locked.length ? locked.join('\n---\n') : '(none)'}
 
+If a change cannot be applied without editing a locked paragraph, apply it everywhere else and list the locked paragraphs it would affect in "wouldTouch" (quote each paragraph's opening words). Report overrides of the saved rules and any conflict between the rules and the English variant selector in "notices". Never put notices or flags into the letter text.
+
 Also keep every standing rule: candidate as the subject of their own sentences, evidence only from the pool, nothing the advertisement does not ask for, no restating the ad, the RULES block still binding and undiluted, and the ${englishBlock(ctx.style)} unchanged.
 
-Return the full revised letter. Answer as JSON: {"paragraphs":["...","..."]}`;
+Return the full revised letter. Answer as JSON: {"paragraphs":["...","..."],"notices":["..."],"wouldTouch":["..."]}`;
 }
 
 /** Trace every paragraph back to the resume, and flag what cannot be traced. */
@@ -343,19 +380,22 @@ export function groundingPrompt(ctx: Ctx, paragraphs: string[]): string {
     .join('\n')}\n<<< END >>>
 
 <<< JOB ADVERTISEMENT >>>
-${ctx.job.slice(0, 6000)}\n<<< END >>>
+${ctx.job.slice(0, 6000)}
+<<< END >>>
 
-${constraintsBlock(ctx.style)}
+${rulesBlock(ctx.rules)}
 
 LETTER PARAGRAPHS:
 ${paragraphs.map((p, i) => `[${i + 1}] ${p}`).join('\n\n')}
 
 For each paragraph, in order, report:
-- "sources": the short resume/background lines each claim rests on (quote 3-8 words each). Empty if the paragraph makes no claims.
-- "unsupported": any sentence making a claim that the candidate material does not support, or that attributes something to the wrong employer or period. Quote the sentence.
+- "sources": for each claim the paragraph actually makes, the short background line it rests on (quote 3-8 words each). List only sources this paragraph uses — none for material it does not contain. Empty if the paragraph makes no claims.
+- "unsupported": the specific unsupported words or short phrase — not the whole sentence — for any claim the candidate material does not support. Quote the fragment exactly as it appears.
+- "misattributed": any fact credited to the wrong employer, role or period, even though the fact exists somewhere in the background. Quote the fragment, then " - belongs to: " and where it actually belongs.
 - "echoes": any phrase of four or more words taken from the job advertisement, including requirements restated as prose.
+- "rules": any breach of a line in the RULES block visible in this paragraph, as {"rule":"the rule","fragment":"the words that break it"}. Ignore spelling-variant and punctuation rules — those are enforced in code.
 
-Answer as JSON: {"paragraphs":[{"sources":["..."],"unsupported":["..."],"echoes":["..."]}]}`;
+Answer as JSON: {"paragraphs":[{"sources":[{"claim":"...","source":"..."}],"unsupported":["..."],"misattributed":["..."],"echoes":["..."],"rules":[{"rule":"...","fragment":"..."}]}]}`;
 }
 
 export function reviewPrompt(ctx: Ctx, letter: string): string {
@@ -371,7 +411,7 @@ Check this letter and report in this exact order, using short headings and bulle
 3. Facts attached to the wrong employer, role or period.
 4. Phrases that echo the job advertisement's wording, or requirements restated as prose, or the employer's own business described back to them.
 5. The substitution test: if the employer's name were swapped for another, would the letter still read the same? If yes, say what is missing that ties it to THIS role.
-6. Anything breaching the "must not claim or mention" list, the RULES block, the English variant, or the greeting/title/closing structure.
+6. Anything breaching the saved rules, the selected English variant, or the greeting/role/closing structure.
 Then one short paragraph (max 80 words) on what works and the single most useful change. No score or rating. Plain text.`;
 }
 
@@ -496,9 +536,9 @@ const US_TO_UK: [RegExp, string][] = [
   [/\bprioritize(s|d)?\b/g, 'prioritise$1'],
   [/\bspecialize(s|d)?\b/g, 'specialise$1'],
   [/\bsummarize(s|d)?\b/g, 'summarise$1'],
-  [/\bstandardize(s|d)?\b/g, 'standardize$1'],
-  [/\bcustomize(s|d)?\b/g, 'customize$1'],
-  [/\boptimize(s|d)?\b/g, 'optimize$1'],
+  [/\bstandardize(s|d)?\b/g, 'standardise$1'],
+  [/\bcustomize(s|d)?\b/g, 'customise$1'],
+  [/\boptimize(s|d)?\b/g, 'optimise$1'],
   [/\bapologize(s|d)?\b/g, 'apologise$1'],
   [/\butilize(s|d)?\b/g, 'utilise$1'],
 ];
@@ -526,36 +566,123 @@ export function detectVariant(text: string): EnglishVariant | null {
   return uk > us ? 'uk' : 'us';
 }
 
-export type BannedCharMode = 'dashes' | 'quotes' | 'both';
+/**
+ * Which English variant the user's rules text names, if any. The selector wins
+ * on conflict, but the mismatch is reported to the user.
+ */
+export function rulesVariant(rules: string): EnglishVariant | null {
+  const r = (rules || '').toLowerCase();
+  if (!r) return null;
+  const ukish = /\b(nz|new zealand|australian|australia|uk|british|britain|england|au)\b/.test(r);
+  const usish = /\b(us|u\.s\.|usa|american|america|united states)\b/.test(r);
+  if (ukish && !usish) return 'uk';
+  if (usish && !ukish) return 'us';
+  return null;
+}
 
 /** Characters the user may have banned in their rules, with their ASCII substitutes. */
 const BANNED_CHARS: { name: string; pattern: RegExp; replacement: string }[] = [
   { name: 'em dash', pattern: /\u2014/g, replacement: '-' },
+  { name: 'em dashes', pattern: /\u2014/g, replacement: '-' },
   { name: 'en dash', pattern: /\u2013/g, replacement: '-' },
+  { name: 'en dashes', pattern: /\u2013/g, replacement: '-' },
   { name: 'curly apostrophe', pattern: /[\u2018\u2019]/g, replacement: "'" },
   { name: 'curly quotes', pattern: /[\u201C\u201D]/g, replacement: '"' },
   { name: 'non-breaking hyphen', pattern: /\u2011/g, replacement: '-' },
   { name: 'ellipsis', pattern: /\u2026/g, replacement: '...' },
 ];
 
+const CHAR_NEGATION =
+  /(no|never|without|don'?t|do not|avoid|ban(?:ned)?|exclud\w*|instead of|stop using|not use|not using)\s+(?:use\s+|using\s+|of\s+)?(?:\w+\s+){0,3}$/i;
+
 /**
  * Enforce in code what code can enforce. Detects which characters the user has
  * banned in their rules text and substitutes them out of the letter, regardless
- * of what the model was asked to do.
+ * of what the model was asked to do. A character is only treated as banned when
+ * the rules negate it ("no em dashes") — merely mentioning it is not a ban.
  */
 export function enforceBannedChars(text: string, rules: string): string {
   const r = (rules || '').toLowerCase();
   if (!r) return text;
   let out = text;
   for (const { name, pattern, replacement } of BANNED_CHARS) {
-    // Match the character name in the rules, allowing for plurals and "no X"/"never use X".
-    const banned = new RegExp(
-      `(no|never|without|don'?t|do not|avoid|ban|banned)\\s+(?:use\\s+|using\\s+|of\\s+)?(?:\\w+\\s+){0,3}${name}s?`,
-      'i',
-    ).test(r) || new RegExp(`${name}`, 'i').test(r);
-    if (banned) out = out.replace(pattern, replacement);
+    const match = new RegExp(name.replace(/ /g, '\\s+'), 'i').exec(r);
+    if (!match) continue;
+    const before = r.slice(Math.max(0, match.index - 30), match.index);
+    if (CHAR_NEGATION.test(before)) out = out.replace(pattern, replacement);
   }
   return out;
+}
+
+/** Words too common to be worth flagging when they repeat. */
+const REPETITION_STOP = new Set([
+  'that', 'this', 'with', 'from', 'they', 'them', 'then', 'than', 'have', 'been',
+  'were', 'their', 'there', 'these', 'those', 'which', 'would', 'could', 'should',
+  'about', 'into', 'also', 'more', 'most', 'some', 'such', 'when', 'while', 'where',
+  'what', 'your', 'you', 'our', 'will', 'and', 'the', 'for', 'are', 'was', 'has',
+  'had', 'not', 'but', 'all', 'can', 'its', "it's", 'here', 'over', 'both', 'each',
+  'after', 'before', 'because', 'being', 'under', 'across', 'every', 'very', 'just',
+  'like', 'make', 'made', 'take', 'took', 'give', 'gave', 'well', 'only', 'even',
+  'much', 'many', 'onto', 'upon', 'within', 'without', 'through', 'during', 'my',
+  'me', 'he', 'she', 'his', 'her', 'him', 'who', 'whom', 'how', 'why', 'any',
+]);
+
+/**
+ * Code-side repetition check: flag words repeated within a short distance, and
+ * sentences that open the same way. Flags only — never auto-corrects.
+ */
+export function flagRepetition(text: string): string[] {
+  const flags: string[] = [];
+  const clean = normaliseModelText(text || '');
+  if (!clean.trim()) return flags;
+
+  // Words repeated within ~40 words of each other.
+  const words = clean.toLowerCase().match(/[a-z']+/g) || [];
+  const lastSeen = new Map<string, number>();
+  const repeats = new Set<string>();
+  words.forEach((w, i) => {
+    if (w.length < 4 || REPETITION_STOP.has(w)) return;
+    const prev = lastSeen.get(w);
+    if (prev !== undefined && i - prev <= 40) repeats.add(w);
+    lastSeen.set(w, i);
+  });
+  for (const w of Array.from(repeats).slice(0, 3)) {
+    flags.push(`"${w}" repeats within a few words`);
+  }
+
+  // Sentences that open with the same word.
+  const sentences = clean.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+  const firstWords = new Map<string, number>();
+  for (const s of sentences) {
+    const opening = (s.match(/^[A-Za-z']+/) || [''])[0].toLowerCase();
+    if (opening.length < 3) continue;
+    firstWords.set(opening, (firstWords.get(opening) || 0) + 1);
+  }
+  for (const [w, n] of firstWords) {
+    if (n >= 3) flags.push(`${n} sentences start with "${w}"`);
+  }
+  return flags.slice(0, 4);
+}
+
+/**
+ * Cross-paragraph check: paragraphs that open with the same word. Each paragraph
+ * is flagged against earlier ones only, so a pair produces one flag.
+ */
+export function flagParagraphOpenings(texts: string[]): string[][] {
+  const firsts = texts.map(
+    (t) => (normaliseModelText(t || '').trim().match(/^[A-Za-z']+/)?.[0] || '').toLowerCase(),
+  );
+  return texts.map((_, i) => {
+    const flags: string[] = [];
+    if (!firsts[i]) return flags;
+    for (let j = 0; j < i; j++) {
+      if (firsts[j] && firsts[j] === firsts[i]) {
+        flags.push(`opens the same way as paragraph ${j + 1}`);
+        break;
+      }
+    }
+    return flags;
+  });
 }
 
 export function lettersToText(paragraphs: Paragraph[]): string {

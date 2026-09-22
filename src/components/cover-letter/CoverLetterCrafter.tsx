@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   ArrowLeft,
+  Bell,
   Download,
   Loader2,
   Printer,
@@ -43,21 +44,23 @@ import { AiAssistantButton } from '@/components/ai/AiAssistantButton';
 import { ParagraphCard } from './ParagraphCard';
 import { SourceInput } from './SourceInput';
 import { ContextItemList } from './ContextItemList';
-import { ConstraintsCard } from './ConstraintsCard';
 import { RequirementsEditor, RequirementsStatus } from './RequirementsEditor';
 import {
   RULES_STORAGE_KEY,
   ContextItem,
   ENGLISH_VARIANTS,
   Paragraph,
+  RuleFlag,
+  SourceRef,
   StyleSettings,
   SYSTEM,
-  constraintSuggestionPrompt,
   convertVariant,
   detectVariant,
   draftPrompt,
   editPrompt,
   enforceBannedChars,
+  flagParagraphOpenings,
+  flagRepetition,
   groundingPrompt,
   insertPrompt,
   lettersToText,
@@ -67,6 +70,7 @@ import {
   requirementsPrompt,
   resumeSummary,
   reviewPrompt,
+  rulesVariant,
   stylePrompt,
 } from '@/lib/coverLetter';
 import { ResumeData } from '@/types/resume';
@@ -83,17 +87,50 @@ interface CoverLetterCrafterProps {
 
 /** The per-paragraph grounding report returned by groundingPrompt. */
 interface Grounding {
-  sources: string[];
+  sources: SourceRef[];
   unsupported: string[];
+  misattributed: string[];
   echoes: string[];
+  ruleFlags: RuleFlag[];
 }
 
-const emptyGrounding = (): Grounding => ({ sources: [], unsupported: [], echoes: [] });
+/** Model answers may return sources/rules as strings or objects — accept both. */
+const toSourceRef = (s: any): SourceRef | null => {
+  if (typeof s === 'string') return s.trim() ? { claim: '', source: s.trim() } : null;
+  if (s && typeof s === 'object') {
+    const source = String(s.source || s.quote || '').trim();
+    const claim = String(s.claim || '').trim();
+    if (!source && !claim) return null;
+    return { claim, source };
+  }
+  return null;
+};
 
-const cleanGrounding = (g: Grounding | undefined | null): Grounding => ({
-  sources: (g?.sources || []).filter(Boolean),
-  unsupported: (g?.unsupported || []).filter(Boolean),
-  echoes: (g?.echoes || []).filter(Boolean),
+const toRuleFlag = (r: any): RuleFlag | null => {
+  if (typeof r === 'string') return r.trim() ? { rule: r.trim(), fragment: '' } : null;
+  if (r && typeof r === 'object') {
+    const rule = String(r.rule || '').trim();
+    const fragment = String(r.fragment || '').trim();
+    if (!rule && !fragment) return null;
+    return { rule, fragment };
+  }
+  return null;
+};
+
+const cleanGrounding = (g: any): Grounding => ({
+  sources: (g?.sources || []).map(toSourceRef).filter(Boolean) as SourceRef[],
+  unsupported: (g?.unsupported || []).map((s: any) => String(s)).filter(Boolean),
+  misattributed: (g?.misattributed || []).map((s: any) => String(s)).filter(Boolean),
+  echoes: (g?.echoes || []).map((s: any) => String(s)).filter(Boolean),
+  ruleFlags: (g?.rules || g?.ruleFlags || []).map(toRuleFlag).filter(Boolean) as RuleFlag[],
+});
+
+const emptyGrounding = (): Grounding => ({
+  sources: [],
+  unsupported: [],
+  misattributed: [],
+  echoes: [],
+  ruleFlags: [],
 });
 
 export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }) => {
@@ -105,9 +142,9 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
   const [resumeText, setResumeText] = useState('');
   const [job, setJob] = useState('');
   const [contextItems, setContextItems] = useState<ContextItem[]>([]);
-  const [style, setStyle] = useState<StyleSettings>({ chips: [], custom: '', constraints: [], english: 'uk' });
+  const [style, setStyle] = useState<StyleSettings>({ chips: [], custom: '', english: 'uk' });
 
-  // FIELD 1: Rules — persistent between sessions, so it arrives pre-filled.
+  // FIELD 1: Rules — a saved setting in its own section, pre-filled from last time.
   const [rules, setRules] = useState<string>(() => {
     try {
       return localStorage.getItem(RULES_STORAGE_KEY) || '';
@@ -123,15 +160,18 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
   /** Snapshot of the role text the current list was generated from. */
   const reqSourceRef = useRef('');
 
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [gapSuggestions, setGapSuggestions] = useState<string[]>([]);
-  const [gapsBusy, setGapsBusy] = useState(false);
   const [title, setTitle] = useState('Untitled cover letter');
   const [letterId, setLetterId] = useState<string | null>(null);
   const [review, setReview] = useState('');
+  /** Style suggestions from the model, offered as chips in step 4. */
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [instruction, setInstruction] = useState('');
   /** Every instruction applied so far — revisions satisfy the whole set, not just the newest. */
   const [instructionHistory, setInstructionHistory] = useState<string[]>([]);
+  /** Letter-wide notices: rule overrides, selector mismatches. Never inside the letter text. */
+  const [notices, setNotices] = useState<string[]>([]);
+  /** Locked paragraphs a change could not be applied to. */
+  const [wouldTouch, setWouldTouch] = useState<string[]>([]);
   const [resetOpen, setResetOpen] = useState(false);
 
   // Undo/redo over immutable paragraph snapshots.
@@ -221,7 +261,7 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
           reqSourceRef.current = text;
           return;
         }
-        const list = (parsed?.requirements || []).map((r) => r.trim()).filter(Boolean);
+        const list = (parsed?.requirements || []).map((r) => String(r).trim()).filter(Boolean);
         if (list.length) {
           setRequirements(list);
           setReqStatus('ready');
@@ -254,76 +294,70 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
     if (parsed?.styles?.length) setSuggestions(parsed.styles.slice(0, 8));
   };
 
-  /** Requirements the ad asks for that the background does not support → "won't claim" chips. */
-  const suggestGaps = async () => {
-    setGapsBusy(true);
-    try {
-      const text = await run(
-        { prompt: constraintSuggestionPrompt(ctx), system: SYSTEM, json: true },
-        'finding gaps',
-      );
-      if (!text) return;
-      const parsed = parseJsonAnswer<{ items: string[] }>(text);
-      if (parsed?.items?.length) setGapSuggestions(parsed.items.slice(0, 8));
-    } finally {
-      setGapsBusy(false);
-    }
-  };
-
   const toggleChip = (chip: string) =>
     setStyle((s) => ({
       ...s,
       chips: s.chips.includes(chip) ? s.chips.filter((c) => c !== chip) : [...s.chips, chip],
     }));
 
-  const setConstraints = (constraints: string[]) => setStyle((s) => ({ ...s, constraints }));
+  /** Notice raised in code when the rules and the variant selector disagree. The selector wins. */
+  const variantMismatchNotice = useCallback((): string[] => {
+    const rv = rulesVariant(rules);
+    const sel = style.english || 'uk';
+    if (!rv || rv === sel) return [];
+    const name = (v: string) => ENGLISH_VARIANTS.find((x) => x.id === v)?.label || v;
+    return [
+      `Your rules mention ${name(rv)}, but the English variant selector is set to ${name(sel)}. The selector was applied — adjust either one if that is not what you want.`,
+    ];
+  }, [rules, style.english]);
 
   /**
-   * Enforce in code what code can enforce, on every model answer:
-   * punctuation normalisation, the user's banned characters, and the
-   * English variant when the rules or the setting name one.
+   * Enforce in code what code can enforce, on every paragraph (locked included):
+   * punctuation normalisation, the user's banned characters, and the selected
+   * English variant.
    */
   const enforce = useCallback(
     (raw: string | null): string | null => {
       if (!raw) return null;
       let out = normaliseModelText(raw);
       out = enforceBannedChars(out, rules);
-
-      // A named variant in the rules wins; otherwise the selector applies.
-      const r = rules.toLowerCase();
-      const nzAuUk = /\b(nz|new zealand|australian|uk|british|au|australia)\b/.test(r);
-      const us = /\b(us|u\.s\.|american|united states)\b/.test(r);
-      if (nzAuUk && !us) {
-        out = convertVariant(out, 'uk');
-      } else if (us && !nzAuUk) {
-        out = convertVariant(out, 'us');
-      } else {
-        const target = style.english || 'uk';
-        const current = detectVariant(out);
-        if (current && current !== target) out = convertVariant(out, target);
-      }
+      const target = style.english || 'uk';
+      const current = detectVariant(out);
+      if (current && current !== target) out = convertVariant(out, target);
       return out;
     },
     [rules, style.english],
   );
 
   /**
-   * One small extra call per draft/edit: trace each paragraph back to the
-   * resume and extra background, and flag what cannot be traced.
+   * Post-generation passes, in code not the prompt: banned characters, hyphens,
+   * English variant, and repetition flags (flagged, never auto-corrected).
+   */
+  const postProcess = useCallback(
+    (list: Paragraph[]): Paragraph[] => {
+      const processed = list.map((p) => ({ ...p, text: enforce(p.text) ?? p.text }));
+      const openings = flagParagraphOpenings(processed.map((p) => p.text));
+      return processed.map((p, i) => ({
+        ...p,
+        repetition: [...flagRepetition(p.text), ...(openings[i] || [])],
+      }));
+    },
+    [enforce],
+  );
+
+  /**
+   * One small extra call per draft/edit: trace each claim back to the resume
+   * and extra background, and flag what cannot be traced or is misattributed.
    */
   const ground = useCallback(
-    async (texts: string[], fallback: Paragraph[]): Promise<Paragraph[]> => {
-      const base =
-        fallback.length === texts.length
-          ? fallback
-          : texts.map((t) => ({ id: newId(), text: t, locked: false }));
-      if (!texts.length) return base;
+    async (base: Paragraph[]): Promise<Paragraph[]> => {
+      if (!base.length) return base;
       const text = await run(
-        { prompt: groundingPrompt(ctx, texts), system: SYSTEM, json: true },
+        { prompt: groundingPrompt(ctx, base.map((p) => p.text)), system: SYSTEM, json: true },
         'checking sources',
       );
       if (!text) return base;
-      const parsed = parseJsonAnswer<{ paragraphs: Grounding[] }>(text);
+      const parsed = parseJsonAnswer<{ paragraphs: any[] }>(text);
       const list = parsed?.paragraphs;
       if (!Array.isArray(list)) return base;
       return base.map((p, i) => ({ ...p, ...cleanGrounding(list[i]) }));
@@ -332,72 +366,68 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
   );
 
   const generate = async () => {
-    const text = enforce(
-      await run({ prompt: draftPrompt(ctx), system: SYSTEM, json: true }, 'draft'),
-    );
+    const text = await run({ prompt: draftPrompt(ctx), system: SYSTEM, json: true }, 'draft');
     if (!text) return;
-    const parsed = parseJsonAnswer<{ paragraphs: string[] }>(text);
+    const parsed = parseJsonAnswer<{ paragraphs: string[]; notices?: string[] }>(text);
     const list = parsed?.paragraphs?.length ? parsed.paragraphs : text.split(/\n{2,}/).filter(Boolean);
-    const base = list.map((t) => ({ id: newId(), text: t.trim(), locked: false }));
-    commit(await ground(base.map((p) => p.text), base));
+    const base: Paragraph[] = list.map((t) => ({ id: newId(), text: String(t).trim(), locked: false }));
+    setNotices([...(parsed?.notices || []).map(String), ...variantMismatchNotice()]);
+    setWouldTouch([]);
     setReview('');
     setInstructionHistory([]);
+    commit(postProcess(await ground(base)));
   };
 
   const editParagraph = async (index: number, mode: 'rephrase' | 'regenerate') => {
-    const text = enforce(
-      await run(
-        { prompt: editPrompt(ctx, mode, paragraphs[index].text, letterText), system: SYSTEM },
-        mode,
-      ),
+    const text = await run(
+      { prompt: editPrompt(ctx, mode, paragraphs[index].text, letterText), system: SYSTEM },
+      mode,
     );
     if (!text) return;
-    const clean = text.trim();
+    const clean = enforce(text.trim()) ?? text.trim();
     const next = [...paragraphs];
     next[index] = { ...paragraphs[index], text: clean, ...emptyGrounding() };
-    const [grounded] = await ground([clean], [next[index]]);
-    next[index] = grounded;
-    commit(next);
+    commit(postProcess(await ground([next[index]])));
   };
 
   const insertAbove = async (index: number) => {
-    const text = enforce(
-      await run({ prompt: insertPrompt(ctx, letterText, index), system: SYSTEM }, 'insert'),
-    );
+    const text = await run({ prompt: insertPrompt(ctx, letterText, index), system: SYSTEM }, 'insert');
     if (!text) return;
-    const fresh: Paragraph = { id: newId(), text: text.trim(), locked: false };
-    const [grounded] = await ground([fresh.text], [fresh]);
+    const fresh: Paragraph = { id: newId(), text: enforce(text.trim()) ?? text.trim(), locked: false };
+    const [grounded] = await ground([fresh]);
     const next = [...paragraphs];
-    next.splice(index, 0, grounded);
+    next.splice(index, 0, postProcess([grounded])[0]);
     commit(next);
   };
 
   const applyInstruction = async () => {
     if (!instruction.trim()) return;
     const locked = paragraphs.filter((p) => p.locked).map((p) => p.text);
-    const text = enforce(
-      await run(
-        {
-          prompt: promptWithInstruction(ctx, letterText, instruction, locked, instructionHistory),
-          system: SYSTEM,
-          json: true,
-        },
-        'revising',
-      ),
+    const text = await run(
+      {
+        prompt: promptWithInstruction(ctx, letterText, instruction, locked, instructionHistory),
+        system: SYSTEM,
+        json: true,
+      },
+      'revising',
     );
     if (!text) return;
-    const parsed = parseJsonAnswer<{ paragraphs: string[] }>(text);
+    const parsed = parseJsonAnswer<{ paragraphs: string[]; notices?: string[]; wouldTouch?: string[] }>(text);
     const list = parsed?.paragraphs?.length ? parsed.paragraphs : text.split(/\n{2,}/).filter(Boolean);
     const revised: Paragraph[] = list.map((t, i) => ({
       id: paragraphs[i]?.id || newId(),
-      text: paragraphs[i]?.locked ? paragraphs[i].text : t.trim(),
+      text: paragraphs[i]?.locked ? paragraphs[i].text : String(t).trim(),
       locked: paragraphs[i]?.locked ?? false,
       ...(paragraphs[i]?.locked ? {} : emptyGrounding()),
     }));
-    const changed = revised.filter((p) => !p.locked);
-    const grounded = await ground(changed.map((p) => p.text), changed);
+    // Post-passes apply to every paragraph, locked included; grounding refreshes the rest.
+    const processed = postProcess(revised);
+    const changed = processed.filter((p) => !p.locked);
+    const grounded = await ground(changed);
     let gi = 0;
-    commit(revised.map((p) => (p.locked ? p : grounded[gi++] || p)));
+    commit(processed.map((p) => (p.locked ? p : grounded[gi++] || p)));
+    setNotices([...(parsed?.notices || []).map(String), ...variantMismatchNotice()]);
+    setWouldTouch((parsed?.wouldTouch || []).map(String).filter(Boolean));
     setInstructionHistory((h) => [...h, instruction.trim()]);
     setInstruction('');
   };
@@ -540,7 +570,7 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">3. Extra context (optional)</CardTitle>
+              <CardTitle className="text-base">3. Extra content (optional)</CardTitle>
               <CardDescription>
                 Tag each source with what it may be used for — old letters teach style, never facts.
               </CardDescription>
@@ -549,15 +579,6 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
               <ContextItemList items={contextItems} onChange={setContextItems} />
             </CardContent>
           </Card>
-
-          <ConstraintsCard
-            constraints={style.constraints || []}
-            suggestions={gapSuggestions}
-            busy={gapsBusy}
-            canSuggest={ready}
-            onChange={setConstraints}
-            onSuggest={suggestGaps}
-          />
 
           <Card>
             <CardHeader>
@@ -617,46 +638,48 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
                   />
                 </div>
               </div>
-
-              {/* FIELD 1: Rules — saved between sessions, pre-filled from last time. */}
-              <div className="rounded-md border border-primary/20 bg-primary/5 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="rules" className="flex items-center gap-1">
-                    Rules
-                    <Badge variant="secondary" className="text-[10px] font-normal">
-                      saved
-                    </Badge>
-                  </Label>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Anything you always want followed, in every letter. For example: use NZ English,
-                  never use em dashes, don't mention my current employer. Saved automatically — it
-                  carries over to your next letter.
-                </p>
-                <Textarea
-                  id="rules"
-                  rows={4}
-                  value={rules}
-                  onChange={(e) => setRules(e.target.value)}
-                  placeholder="One rule per line. Left empty, nothing is enforced."
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Sent with every draft and revision, and treated as binding. Spelling variants and
-                  banned characters are also enforced in code after generation.
-                </p>
-              </div>
-
-              <Button className="w-full" disabled={!ready || isBusy} onClick={generate}>
-                {isBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
-                {paragraphs.length ? 'Write a new draft' : 'Write my cover letter'}
-              </Button>
-              {!ready && (
-                <p className="text-xs text-muted-foreground">
-                  Add your background and the job description to start.
-                </p>
-              )}
             </CardContent>
           </Card>
+
+          {/* FIELD 1: Rules — its own section, saved between sessions. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                5. Rules
+                <Badge variant="secondary" className="text-[10px] font-normal">
+                  saved setting
+                </Badge>
+              </CardTitle>
+              <CardDescription>
+                Anything you always want followed. For example: no em dashes, keep it under 350 words,
+                don't mention my current employer, don't claim Figma skills.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                id="rules"
+                rows={4}
+                value={rules}
+                onChange={(e) => setRules(e.target.value)}
+                placeholder="One rule per line. Left empty, nothing is enforced."
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Pre-filled from your last letter and saved automatically. Sent with every draft and
+                revision and treated as binding; spelling variants and banned characters are also
+                enforced in code after generation.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Button className="w-full" disabled={!ready || isBusy} onClick={generate}>
+            {isBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
+            {paragraphs.length ? 'Write a new draft' : 'Write my cover letter'}
+          </Button>
+          {!ready && (
+            <p className="text-xs text-muted-foreground">
+              Add your background and the job description to start.
+            </p>
+          )}
         </div>
 
         {/* Draft */}
@@ -711,6 +734,32 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
               </CardHeader>
               <CardContent>
                 <p className="whitespace-pre-wrap text-sm text-muted-foreground">{review}</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Single notice area: everything not tied to one paragraph lives here, never in the letter. */}
+          {(notices.length > 0 || wouldTouch.length > 0) && (
+            <Card className="border-amber-500/50 bg-amber-500/5">
+              <CardContent className="pt-4 space-y-2">
+                <p className="flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-400">
+                  <Bell className="h-4 w-4" />
+                  Notices
+                </p>
+                {notices.map((n, i) => (
+                  <p key={`n${i}`} className="text-xs text-amber-700 dark:text-amber-400">
+                    {n}
+                  </p>
+                ))}
+                {wouldTouch.map((t, i) => (
+                  <p key={`w${i}`} className="text-xs text-amber-700 dark:text-amber-400">
+                    A change could not be applied to the locked paragraph starting “{t}” — it was applied
+                    everywhere else.
+                  </p>
+                ))}
+                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setNotices([]); setWouldTouch([]); }}>
+                  Dismiss
+                </Button>
               </CardContent>
             </Card>
           )}
