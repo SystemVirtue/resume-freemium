@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { AiProviderId, AiSettings, DEFAULT_MODELS } from '@/lib/ai/types';
 import { isPuterSignedIn } from '@/lib/ai/puter';
+import { saveOpenRouterKey } from '@/lib/ai/client';
 
 const STORAGE_KEY = 'ai-settings';
 
@@ -12,7 +13,8 @@ interface AiSettingsContextValue {
   refreshPuter: () => Promise<void>;
   setProvider: (provider: AiProviderId) => void;
   setModel: (model: string | null) => void;
-  setOpenRouterKey: (key: string | null) => void;
+  /** Saves the key on the server. The key is never kept in the browser. */
+  setOpenRouterKey: (key: string | null) => Promise<boolean>;
   isProviderReady: (provider?: AiProviderId) => boolean;
   onboardingSeen: boolean;
   markOnboardingSeen: () => void;
@@ -28,13 +30,13 @@ function readStored(): AiSettings {
       return {
         provider: (parsed.provider as AiProviderId) || 'lovable',
         model: parsed.model ?? null,
-        openRouterKey: parsed.openRouterKey ?? null,
+        openRouterKeySet: Boolean(parsed.openRouterKeySet),
       };
     }
   } catch {
     /* ignore */
   }
-  return { provider: 'lovable', model: null, openRouterKey: null };
+  return { provider: 'lovable', model: null, openRouterKeySet: false };
 }
 
 export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -44,6 +46,7 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [onboardingSeen, setOnboardingSeen] = useState(true);
 
   useEffect(() => {
+    // Only the presence of a key is remembered here; the key itself lives server side.
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   }, [settings]);
 
@@ -53,7 +56,7 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [settings.provider]);
 
-  // Load the saved preference + onboarding flag for the signed-in user.
+  // Load the saved preference, onboarding flag and key presence for the signed-in user.
   useEffect(() => {
     if (!user) {
       setOnboardingSeen(true);
@@ -63,18 +66,18 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     (async () => {
       const { data } = await supabase
         .from('profiles')
-        .select('ai_provider, ai_model, onboarding_seen')
+        .select('ai_provider, ai_model, onboarding_seen, openrouter_key')
         .eq('user_id', user.id)
         .maybeSingle();
       if (!active) return;
       setOnboardingSeen(Boolean(data?.onboarding_seen));
-      if (data?.ai_provider) {
-        setSettings((prev) => ({
-          ...prev,
-          provider: data.ai_provider as AiProviderId,
-          model: data.ai_model ?? prev.model,
-        }));
-      }
+      setSettings((prev) => ({
+        ...prev,
+        ...(data?.ai_provider
+          ? { provider: data.ai_provider as AiProviderId, model: data.ai_model ?? prev.model }
+          : {}),
+        openRouterKeySet: Boolean((data as any)?.openrouter_key),
+      }));
     })();
     return () => {
       active = false;
@@ -114,8 +117,10 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     [persist],
   );
 
-  const setOpenRouterKey = useCallback((key: string | null) => {
-    setSettings((prev) => ({ ...prev, openRouterKey: key }));
+  const setOpenRouterKey = useCallback(async (key: string | null) => {
+    const set = await saveOpenRouterKey(key);
+    setSettings((prev) => ({ ...prev, openRouterKeySet: set }));
+    return set;
   }, []);
 
   const refreshPuter = useCallback(async () => {
@@ -125,7 +130,7 @@ export const AiSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const isProviderReady = useCallback(
     (provider?: AiProviderId) => {
       const p = provider ?? settings.provider;
-      if (p === 'openrouter') return Boolean(settings.openRouterKey);
+      if (p === 'openrouter') return settings.openRouterKeySet;
       if (p === 'puter') return puterReady;
       return true;
     },

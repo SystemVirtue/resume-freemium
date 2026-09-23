@@ -28,6 +28,7 @@ import {
   ArrowLeft,
   Bell,
   Download,
+  FileText,
   Loader2,
   Printer,
   Redo2,
@@ -40,22 +41,34 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { useAi } from '@/hooks/useAi';
 import { parseJsonAnswer } from '@/lib/ai/client';
+import { downloadLetterPdf } from '@/lib/letterPdf';
 import { AiAssistantButton } from '@/components/ai/AiAssistantButton';
 import { ParagraphCard } from './ParagraphCard';
+import { SavedLetters } from './SavedLetters';
 import { SourceInput } from './SourceInput';
 import { ContextItemList } from './ContextItemList';
 import { RequirementsEditor, RequirementsStatus } from './RequirementsEditor';
 import {
+  FLAG_DECISIONS_STORAGE_KEY,
+  FLAG_KIND_META,
+  GROUNDING_SYSTEM,
+  LETTER_SYSTEM,
+  REQUIREMENTS_SYSTEM,
   RULES_STORAGE_KEY,
   ContextItem,
   ENGLISH_VARIANTS,
+  FlagDecision,
+  FlagDecisions,
+  FlagKind,
   Paragraph,
   RuleFlag,
   SourceRef,
   StyleSettings,
-  SYSTEM,
+  approvedInstructions,
   convertVariant,
   detectVariant,
+  dismissalCounts,
+  dismissedFragments,
   draftPrompt,
   editPrompt,
   enforceBannedChars,
@@ -63,6 +76,7 @@ import {
   flagRepetition,
   groundingPrompt,
   insertPrompt,
+  letterWordCount,
   lettersToText,
   newId,
   normaliseModelText,
@@ -72,8 +86,17 @@ import {
   reviewPrompt,
   rulesVariant,
   stylePrompt,
+  suggestedRule,
 } from '@/lib/coverLetter';
 import { ResumeData } from '@/types/resume';
+import {
+  LetterSession,
+  SavedLetterRow,
+  mostRecentDraft,
+  savedLetterSummary,
+  sessionFromRow,
+  sessionToPayload,
+} from '@/lib/savedLetters';
 
 interface SavedResume {
   id: string;
@@ -92,6 +115,11 @@ interface Grounding {
   misattributed: string[];
   echoes: string[];
   ruleFlags: RuleFlag[];
+  scope: string[];
+  employer: string[];
+  pivot: string[];
+  unresolved: string[];
+  needsInput: string[];
 }
 
 /** Model answers may return sources/rules as strings or objects — accept both. */
@@ -117,12 +145,20 @@ const toRuleFlag = (r: any): RuleFlag | null => {
   return null;
 };
 
+const strings = (v: any): string[] =>
+  (Array.isArray(v) ? v : []).map((s: any) => String(s).trim()).filter(Boolean);
+
 const cleanGrounding = (g: any): Grounding => ({
   sources: (g?.sources || []).map(toSourceRef).filter(Boolean) as SourceRef[],
-  unsupported: (g?.unsupported || []).map((s: any) => String(s)).filter(Boolean),
-  misattributed: (g?.misattributed || []).map((s: any) => String(s)).filter(Boolean),
-  echoes: (g?.echoes || []).map((s: any) => String(s)).filter(Boolean),
+  unsupported: strings(g?.unsupported),
+  misattributed: strings(g?.misattributed),
+  echoes: strings(g?.echoes),
   ruleFlags: (g?.rules || g?.ruleFlags || []).map(toRuleFlag).filter(Boolean) as RuleFlag[],
+  scope: strings(g?.scope),
+  employer: strings(g?.employer),
+  pivot: strings(g?.pivot),
+  unresolved: strings(g?.unresolved),
+  needsInput: strings(g?.needsInput),
 });
 
 const emptyGrounding = (): Grounding => ({
@@ -131,18 +167,60 @@ const emptyGrounding = (): Grounding => ({
   misattributed: [],
   echoes: [],
   ruleFlags: [],
+  scope: [],
+  employer: [],
+  pivot: [],
+  unresolved: [],
+  needsInput: [],
 });
+
+/** No more than two "needs your input" questions reach the user per draft. */
+const NEEDS_INPUT_LIMIT = 2;
+
+const collectQuestions = (list: Paragraph[], already: string[] = []): string[] => {
+  const out = [...already];
+  for (const p of list) {
+    for (const q of strings(p.needsInput)) {
+      if (out.length >= NEEDS_INPUT_LIMIT) return out;
+      if (!out.some((existing) => existing.toLowerCase() === q.toLowerCase())) out.push(q);
+    }
+  }
+  return out;
+};
+
+/** Past letters are a guide to tone, so a suggestion becomes a sentence in the field. */
+function suggestionToSentence(suggestion: string): string {
+  const s = suggestion.trim().replace(/\.$/, '');
+  if (!s) return '';
+  const words = s.split(/\s+/).length;
+  if (words > 6) return `${s}.`;
+  return `Write in a ${s} tone.`;
+}
+
+function readDecisions(): FlagDecisions {
+  try {
+    const raw = localStorage.getItem(FLAG_DECISIONS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as FlagDecisions) : {};
+  } catch {
+    return {};
+  }
+}
 
 export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }) => {
   const { user } = useAuth();
   const { run, isBusy } = useAi();
+  /** Identity, not the user object: effects must not refetch when it is rebuilt. */
+  const userId = user?.id ?? null;
 
   const [savedResumes, setSavedResumes] = useState<SavedResume[]>([]);
   const [resumeId, setResumeId] = useState<string | null>(null);
   const [resumeText, setResumeText] = useState('');
   const [job, setJob] = useState('');
+  const [appeals, setAppeals] = useState('');
   const [contextItems, setContextItems] = useState<ContextItem[]>([]);
-  const [style, setStyle] = useState<StyleSettings>({ chips: [], custom: '', english: 'uk' });
+  const [style, setStyle] = useState<StyleSettings>({ custom: '', english: 'uk' });
 
   // FIELD 1: Rules — a saved setting in its own section, pre-filled from last time.
   const [rules, setRules] = useState<string>(() => {
@@ -163,7 +241,7 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
   const [title, setTitle] = useState('Untitled cover letter');
   const [letterId, setLetterId] = useState<string | null>(null);
   const [review, setReview] = useState('');
-  /** Style suggestions from the model, offered as chips in step 4. */
+  /** Style suggestions from the model, written into the tone field when tapped. */
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [instruction, setInstruction] = useState('');
   /** Every instruction applied so far — revisions satisfy the whole set, not just the newest. */
@@ -173,6 +251,31 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
   /** Locked paragraphs a change could not be applied to. */
   const [wouldTouch, setWouldTouch] = useState<string[]>([]);
   const [resetOpen, setResetOpen] = useState(false);
+
+  /** Letters read back out of the account, and the state of writing this one down. */
+  const [savedLetters, setSavedLetters] = useState<SavedLetterRow[]>([]);
+  const [lettersLoading, setLettersLoading] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  /** The session exactly as it was last written down; null means never. */
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const [pendingOpen, setPendingOpen] = useState<SavedLetterRow | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<SavedLetterRow | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+
+  /** One write at a time: the write in flight, if any. */
+  const savingRef = useRef<Promise<boolean> | null>(null);
+  /** Set while a saved letter is being restored, so the restore itself is not an edit. */
+  const restoredRef = useRef(false);
+  /** Always the newest save, for the debounced auto-save to call. */
+  const saveRef = useRef<(options?: { silent?: boolean }) => Promise<boolean>>(async () => false);
+
+  /** Approve/dismiss decisions, keyed by flag signature so they survive revisions. */
+  const [decisions, setDecisions] = useState<FlagDecisions>(readDecisions);
+  /** Offered rule lines the user has waved away. */
+  const [ruleOffersDismissed, setRuleOffersDismissed] = useState<FlagKind[]>([]);
+  /** Questions only the user can answer: the question in the box, and the outstanding ones. */
+  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
+  const [openQuestions, setOpenQuestions] = useState<string[]>([]);
 
   // Undo/redo over immutable paragraph snapshots.
   const [history, setHistory] = useState<Paragraph[][]>([[]]);
@@ -205,11 +308,66 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
       style,
       rules,
       requirements,
+      appeals,
+      openQuestions,
     }),
-    [resumeText, job, contextItems, style, rules, requirements],
+    [resumeText, job, contextItems, style, rules, requirements, appeals, openQuestions],
   );
 
   const letterText = lettersToText(paragraphs);
+  const words = useMemo(() => letterWordCount(paragraphs), [paragraphs]);
+
+  /**
+   * The whole editing session in one object, so it can be written to the account
+   * and read back later. Everything a returning user needs to carry on sits here.
+   */
+  const session: LetterSession = useMemo(
+    () => ({
+      title,
+      resumeId,
+      resumeText,
+      job,
+      appeals,
+      contextItems,
+      style,
+      rules,
+      requirements,
+      requirementsSource: reqSourceRef.current,
+      requirementsStatus: reqStatus === 'loading' ? 'idle' : reqStatus,
+      paragraphs,
+      decisions,
+      instructions: instructionHistory,
+      notices,
+      wouldTouch,
+      review,
+      openQuestions,
+      ruleOffersDismissed,
+    }),
+    [
+      title,
+      resumeId,
+      resumeText,
+      job,
+      appeals,
+      contextItems,
+      style,
+      rules,
+      requirements,
+      reqStatus,
+      paragraphs,
+      decisions,
+      instructionHistory,
+      notices,
+      wouldTouch,
+      review,
+      openQuestions,
+      ruleOffersDismissed,
+    ],
+  );
+
+  const sessionJson = useMemo(() => JSON.stringify(session), [session]);
+  /** Anything on screen that is not what was last written down is unsaved work. */
+  const dirty = paragraphs.length > 0 && sessionJson !== baseline;
 
   // FIELD 1: rules persist between sessions — save as the user edits them.
   useEffect(() => {
@@ -219,6 +377,15 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
       /* storage unavailable */
     }
   }, [rules]);
+
+  // Flag decisions persist across revisions and sessions.
+  useEffect(() => {
+    try {
+      localStorage.setItem(FLAG_DECISIONS_STORAGE_KEY, JSON.stringify(decisions));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [decisions]);
 
   const pickSavedResume = (r: SavedResume) => {
     setResumeId(r.id);
@@ -250,7 +417,11 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
       setReqBusy(true);
       try {
         const answer = await run(
-          { prompt: requirementsPrompt({ ...ctx, job: text }), system: SYSTEM, json: true },
+          {
+            prompt: requirementsPrompt({ ...ctx, job: text }),
+            system: REQUIREMENTS_SYSTEM,
+            json: true,
+          },
           'reading the ad',
         );
         if (!answer) return;
@@ -288,17 +459,27 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
   };
 
   const suggestStyles = async () => {
-    const text = await run({ prompt: stylePrompt(ctx), system: SYSTEM, json: true }, 'styles');
+    const text = await run({ prompt: stylePrompt(ctx), json: true }, 'styles');
     if (!text) return;
     const parsed = parseJsonAnswer<{ styles: string[] }>(text);
     if (parsed?.styles?.length) setSuggestions(parsed.styles.slice(0, 8));
   };
 
-  const toggleChip = (chip: string) =>
-    setStyle((s) => ({
-      ...s,
-      chips: s.chips.includes(chip) ? s.chips.filter((c) => c !== chip) : [...s.chips, chip],
-    }));
+  /** One input, one source of truth: a suggestion becomes a sentence in the tone field. */
+  const applySuggestion = (suggestion: string) => {
+    const sentence = suggestionToSentence(suggestion);
+    if (!sentence) return;
+    setStyle((s) => {
+      if (s.custom.includes(sentence)) return s;
+      const custom = [s.custom.trim(), sentence].filter(Boolean).join(' ');
+      return { ...s, custom };
+    });
+  };
+
+  const isSuggestionApplied = (suggestion: string) => {
+    const sentence = suggestionToSentence(suggestion);
+    return Boolean(sentence) && style.custom.includes(sentence);
+  };
 
   /** Notice raised in code when the rules and the variant selector disagree. The selector wins. */
   const variantMismatchNotice = useCallback((): string[] => {
@@ -347,13 +528,14 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
 
   /**
    * One small extra call per draft/edit: trace each claim back to the resume
-   * and extra background, and flag what cannot be traced or is misattributed.
+   * and extra background, and flag what cannot be traced, is misattributed, is
+   * bigger than its source, describes the employer, or does not finish its point.
    */
   const ground = useCallback(
     async (base: Paragraph[]): Promise<Paragraph[]> => {
       if (!base.length) return base;
       const text = await run(
-        { prompt: groundingPrompt(ctx, base.map((p) => p.text)), system: SYSTEM, json: true },
+        { prompt: groundingPrompt(ctx, base.map((p) => p.text)), system: GROUNDING_SYSTEM, json: true },
         'checking sources',
       );
       if (!text) return base;
@@ -366,32 +548,51 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
   );
 
   const generate = async () => {
-    const text = await run({ prompt: draftPrompt(ctx), system: SYSTEM, json: true }, 'draft');
+    const text = await run({ prompt: draftPrompt(ctx), system: LETTER_SYSTEM, json: true }, 'draft');
     if (!text) return;
-    const parsed = parseJsonAnswer<{ paragraphs: string[]; notices?: string[] }>(text);
+    const parsed = parseJsonAnswer<{
+      paragraphs: string[];
+      notices?: string[];
+      questions?: string[];
+    }>(text);
     const list = parsed?.paragraphs?.length ? parsed.paragraphs : text.split(/\n{2,}/).filter(Boolean);
     const base: Paragraph[] = list.map((t) => ({ id: newId(), text: String(t).trim(), locked: false }));
     setNotices([...(parsed?.notices || []).map(String), ...variantMismatchNotice()]);
     setWouldTouch([]);
     setReview('');
     setInstructionHistory([]);
-    commit(postProcess(await ground(base)));
+    const grounded = postProcess(await ground(base));
+    commit(grounded);
+    setOpenQuestions((prev) => collectQuestions(grounded, [...prev, ...strings(parsed?.questions)]));
   };
 
   const editParagraph = async (index: number, mode: 'rephrase' | 'regenerate') => {
     const text = await run(
-      { prompt: editPrompt(ctx, mode, paragraphs[index].text, letterText), system: SYSTEM },
+      {
+        prompt: editPrompt(
+          ctx,
+          mode,
+          paragraphs[index].text,
+          letterText,
+          dismissedFragments(paragraphs, decisions),
+        ),
+        system: LETTER_SYSTEM,
+      },
       mode,
     );
     if (!text) return;
     const clean = enforce(text.trim()) ?? text.trim();
     const next = [...paragraphs];
     next[index] = { ...paragraphs[index], text: clean, ...emptyGrounding() };
-    commit(postProcess(await ground([next[index]])));
+    const [grounded] = postProcess(await ground([next[index]]));
+    const updated = [...paragraphs];
+    updated[index] = grounded;
+    commit(updated);
+    setOpenQuestions((prev) => collectQuestions([grounded], prev));
   };
 
   const insertAbove = async (index: number) => {
-    const text = await run({ prompt: insertPrompt(ctx, letterText, index), system: SYSTEM }, 'insert');
+    const text = await run({ prompt: insertPrompt(ctx, letterText, index), system: LETTER_SYSTEM }, 'insert');
     if (!text) return;
     const fresh: Paragraph = { id: newId(), text: enforce(text.trim()) ?? text.trim(), locked: false };
     const [grounded] = await ground([fresh]);
@@ -405,8 +606,16 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
     const locked = paragraphs.filter((p) => p.locked).map((p) => p.text);
     const text = await run(
       {
-        prompt: promptWithInstruction(ctx, letterText, instruction, locked, instructionHistory),
-        system: SYSTEM,
+        prompt: promptWithInstruction(
+          ctx,
+          letterText,
+          instruction,
+          locked,
+          instructionHistory,
+          approvedInstructions(paragraphs, decisions),
+          dismissedFragments(paragraphs, decisions),
+        ),
+        system: LETTER_SYSTEM,
         json: true,
       },
       'revising',
@@ -425,42 +634,286 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
     const changed = processed.filter((p) => !p.locked);
     const grounded = await ground(changed);
     let gi = 0;
-    commit(processed.map((p) => (p.locked ? p : grounded[gi++] || p)));
+    const finished = processed.map((p) => (p.locked ? p : grounded[gi++] || p));
+    commit(finished);
     setNotices([...(parsed?.notices || []).map(String), ...variantMismatchNotice()]);
     setWouldTouch((parsed?.wouldTouch || []).map(String).filter(Boolean));
     setInstructionHistory((h) => [...h, instruction.trim()]);
+    // An answered question is answered for good.
+    if (pendingQuestion) {
+      setOpenQuestions((prev) => prev.filter((q) => q !== pendingQuestion));
+      setPendingQuestion(null);
+    }
     setInstruction('');
+    setOpenQuestions((prev) => collectQuestions(finished.filter((p) => !p.locked), prev));
   };
 
   const runReview = async () => {
-    const text = await run({ prompt: reviewPrompt(ctx, letterText), system: SYSTEM }, 'review');
+    const text = await run({ prompt: reviewPrompt(ctx, letterText), system: LETTER_SYSTEM }, 'review');
     if (text) setReview(text.trim());
   };
 
-  const save = async () => {
-    if (!user) return;
-    const payload = {
-      user_id: user.id,
-      resume_id: resumeId,
-      title,
-      job_description: job,
-      job_source: 'crafter',
-      context_items: { items: contextItems, requirements } as any,
-      style_settings: { ...style, rules } as any,
-      paragraphs: paragraphs as any,
-      history: [] as any,
-    };
-    const query = letterId
-      ? supabase.from('cover_letters').update(payload).eq('id', letterId).select('id').single()
-      : supabase.from('cover_letters').insert(payload).select('id').single();
-    const { data, error } = await query;
+  const decide = (flagId: string, decision: FlagDecision | null) => {
+    setDecisions((d) => {
+      const next = { ...d };
+      if (decision === null) delete next[flagId];
+      else next[flagId] = decision;
+      return next;
+    });
+  };
+
+  /** After three dismissals of the same kind, offer to make it a standing rule. */
+  const ruleOffer = useMemo(() => {
+    const counts = dismissalCounts(decisions);
+    for (const meta of Object.values(FLAG_KIND_META)) {
+      const count = counts[meta.kind] || 0;
+      if (count < 3) continue;
+      if (ruleOffersDismissed.includes(meta.kind)) continue;
+      const line = suggestedRule(meta.kind);
+      if (rules.toLowerCase().includes(line.toLowerCase())) continue;
+      return { kind: meta.kind, label: meta.label, line };
+    }
+    return null;
+  }, [decisions, ruleOffersDismissed, rules]);
+
+  const addRuleOffer = () => {
+    if (!ruleOffer) return;
+    setRules((r) => [r.trim(), ruleOffer.line].filter(Boolean).join('\n'));
+    setRuleOffersDismissed((d) => [...d, ruleOffer.kind]);
+    toast({
+      title: 'Added to your rules',
+      description: 'It now travels with every letter you write.',
+    });
+  };
+
+  /** Every saved letter, newest first — the list the user picks from. */
+  const refreshLetters = useCallback(async () => {
+    if (!userId) return;
+    setLettersLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('cover_letters')
+        .select('id,title,job_description,resume_id,context_items,style_settings,paragraphs,history,updated_at,created_at')
+        .eq('user_id', userId)
+        .order('updated_at', { ascending: false })
+        .limit(30);
+      if (error) throw error;
+      setSavedLetters((data || []) as unknown as SavedLetterRow[]);
+    } catch {
+      // A list that will not load must not block writing a new letter.
+    } finally {
+      setLettersLoading(false);
+    }
+  }, [userId]);
+
+  /**
+   * Write the session down. Called by the Save button, and quietly by the
+   * debounced auto-save once a letter exists in the account.
+   */
+  const save = useCallback(
+    async (options: { silent?: boolean; wait?: boolean } = {}): Promise<boolean> => {
+      if (!userId || !paragraphs.length) return false;
+      // Never two writes at once. A caller that must not lose its place can wait
+      // for the write already running, then write whatever changed since.
+      if (savingRef.current) return options.wait ? savingRef.current : false;
+
+      const written = sessionJson;
+      const payload = { user_id: userId, ...sessionToPayload(session) };
+      const write = (async (): Promise<boolean> => {
+        setSaveState('saving');
+        try {
+          const query = letterId
+            ? supabase.from('cover_letters').update(payload).eq('id', letterId).select('id').single()
+            : supabase.from('cover_letters').insert(payload).select('id').single();
+          const { data, error } = await query;
+          if (error) throw error;
+          setLetterId(data.id);
+          setSaveState('saved');
+          // Edits made during the write keep the letter unsaved, baseline untouched.
+          setBaseline(written);
+          setSavedLetters((rows) => {
+            const stamped = { ...payload, id: data.id, updated_at: new Date().toISOString() } as SavedLetterRow;
+            const others = rows.filter((r) => r.id !== data.id);
+            return [stamped, ...others];
+          });
+          if (options.silent) return true;
+          toast({ title: 'Saved', description: 'Your cover letter is stored in your account.' });
+          void refreshLetters();
+          return true;
+        } catch (err: any) {
+          setSaveState('error');
+          toast({
+            title: options.silent ? 'Could not save your latest changes' : 'Could not save',
+            description: err?.message || 'Something went wrong.',
+            variant: 'destructive',
+          });
+          return false;
+        }
+      })();
+
+      savingRef.current = write;
+      try {
+        return await write;
+      } finally {
+        savingRef.current = null;
+      }
+    },
+    [userId, paragraphs.length, session, sessionJson, letterId, refreshLetters],
+  );
+
+  useEffect(() => {
+    saveRef.current = save;
+  }, [save]);
+
+  /** A row saved before the background was stored can still be rebuilt from the resume it used. */
+  const resumeTextFor = useCallback(
+    (id: string | null): string => {
+      if (!id) return '';
+      const match = savedResumes.find((r) => r.id === id);
+      if (!match) return '';
+      try {
+        return resumeSummary(match.content as ResumeData);
+      } catch {
+        return '';
+      }
+    },
+    [savedResumes],
+  );
+
+  /** Put a saved letter back into the editor, exactly where it was left. */
+  const openLetter = useCallback(
+    (row: SavedLetterRow) => {
+      const restored = sessionFromRow(row);
+      restoredRef.current = true;
+      setLetterId(row.id);
+      setTitle(restored.title);
+      setResumeId(restored.resumeId);
+      setResumeText(restored.resumeText || resumeTextFor(restored.resumeId));
+      setJob(restored.job);
+      setAppeals(restored.appeals);
+      setContextItems(restored.contextItems);
+      setStyle(restored.style);
+      if (restored.rules) setRules(restored.rules);
+      setRequirements(restored.requirements);
+      reqSourceRef.current = restored.requirementsSource;
+      setReqStatus(restored.requirementsStatus);
+      setHistory([restored.paragraphs]);
+      setCursor(0);
+      setReview(restored.review);
+      setSuggestions([]);
+      setInstruction('');
+      setPendingQuestion(null);
+      setNotices(restored.notices);
+      setWouldTouch(restored.wouldTouch);
+      setInstructionHistory(restored.instructions);
+      setOpenQuestions(restored.openQuestions);
+      setRuleOffersDismissed(restored.ruleOffersDismissed);
+      // Decisions are kept for the account as a whole, so a letter's own record adds to them.
+      setDecisions((d) => ({ ...d, ...restored.decisions }));
+      setSaveState('saved');
+      toast({ title: 'Letter reopened', description: restored.title });
+    },
+    [resumeTextFor],
+  );
+
+  /** Opening another letter would drop unsaved work, so it is asked about first. */
+  const requestOpen = (row: SavedLetterRow) => {
+    if (row.id === letterId) return;
+    if (dirty) setPendingOpen(row);
+    else openLetter(row);
+  };
+
+  const openAndReplace = async (keepChanges: boolean) => {
+    const row = pendingOpen;
+    setPendingOpen(null);
+    if (!row) return;
+    if (keepChanges && !(await save({ wait: true }))) return;
+    openLetter(row);
+  };
+
+  const confirmDelete = async () => {
+    const row = pendingDelete;
+    setPendingDelete(null);
+    if (!row) return;
+    const { error } = await supabase.from('cover_letters').delete().eq('id', row.id);
     if (error) {
-      toast({ title: 'Could not save', description: error.message, variant: 'destructive' });
+      toast({ title: 'Could not delete', description: error.message, variant: 'destructive' });
       return;
     }
-    setLetterId(data.id);
-    toast({ title: 'Saved', description: 'Your cover letter is stored in your account.' });
+    setSavedLetters((rows) => rows.filter((r) => r.id !== row.id));
+    if (row.id === letterId) {
+      // The draft stays on screen; it simply is not saved anywhere any more.
+      setLetterId(null);
+      setSaveState('idle');
+    }
+    const wasOpen = row.id === letterId;
+    toast({
+      title: 'Letter deleted',
+      description: wasOpen
+        ? 'The draft is still on screen, but it is no longer saved anywhere.'
+        : savedLetterSummary(row).title,
+    });
   };
+
+  /**
+   * A new letter keeps the standing inputs — background, style, rules — and
+   * clears the material that belongs to the role, along with the draft.
+   */
+  const startNew = () => {
+    setNewOpen(false);
+    restoredRef.current = true;
+    setLetterId(null);
+    setTitle('Untitled cover letter');
+    setJob('');
+    setAppeals('');
+    setContextItems([]);
+    setRequirements([]);
+    setReqStatus('idle');
+    reqSourceRef.current = '';
+    setHistory([[]]);
+    setCursor(0);
+    setReview('');
+    setSuggestions([]);
+    setInstruction('');
+    setInstructionHistory([]);
+    setNotices([]);
+    setWouldTouch([]);
+    setOpenQuestions([]);
+    setPendingQuestion(null);
+    setSaveState('idle');
+    setBaseline(null);
+  };
+
+  // Letters are read back on arrival: saving them used to be a one-way trip.
+  useEffect(() => {
+    void refreshLetters();
+  }, [refreshLetters]);
+
+  /**
+   * The way back in for someone returning to the app: the newest letter that
+   * actually has a draft, offered while nothing is open.
+   */
+  const continueLetterId = useMemo(
+    () => (letterId ? null : mostRecentDraft(savedLetters)?.id ?? null),
+    [letterId, savedLetters],
+  );
+
+  // A letter just restored is, by definition, what was saved: it starts clean.
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    restoredRef.current = false;
+    setBaseline(sessionJson);
+  }, [sessionJson]);
+
+  /**
+   * Once a letter exists in the account it keeps itself up to date, so a
+   * returning user finds the letter as they left it rather than as they saved it.
+   */
+  useEffect(() => {
+    if (!letterId || !userId || !dirty) return;
+    const timer = setTimeout(() => void saveRef.current({ silent: true }), 2500);
+    return () => clearTimeout(timer);
+  }, [dirty, letterId, userId, sessionJson]);
 
   const download = () => {
     const blob = new Blob([letterText], { type: 'text/plain;charset=utf-8' });
@@ -472,11 +925,24 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
     URL.revokeObjectURL(url);
   };
 
+  const exportPdf = async () => {
+    try {
+      await downloadLetterPdf({ title, paragraphs });
+      toast({ title: 'PDF downloaded', description: 'A4, with selectable text.' });
+    } catch (err: any) {
+      toast({
+        title: 'Could not build the PDF',
+        description: err?.message || 'Something went wrong.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const print = () => {
     const w = window.open('', '_blank');
     if (!w) return;
     w.document.write(
-      `<html><head><title>${title}</title><style>body{font-family:Georgia,serif;max-width:44rem;margin:3rem auto;line-height:1.6}p{margin:0 0 1rem}</style></head><body>${paragraphs
+      `<html><head><title>${title}</title><style>@page{size:A4;margin:20mm}body{font-family:Georgia,serif;max-width:44rem;margin:0 auto;line-height:1.6}p{margin:0 0 1rem}</style></head><body>${paragraphs
         .map((p) => `<p>${p.text.replace(/</g, '&lt;')}</p>`)
         .join('')}</body></html>`,
     );
@@ -549,6 +1015,24 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
                 mode="job"
                 placeholder="Paste the job description here."
               />
+
+              {/* Optional, beside the ad: the only permitted basis for motivation. */}
+              <div className="space-y-1">
+                <Label htmlFor="appeals">What appeals about this role? (optional)</Label>
+                <Textarea
+                  id="appeals"
+                  rows={3}
+                  value={appeals}
+                  onChange={(e) => setAppeals(e.target.value)}
+                  placeholder="In your own words — why this job, this employer, this kind of work."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Fill this in and the letter will use it for the reason you want the job. Leave it
+                  empty and the letter looks for a preference you have stated in a past letter, and
+                  says nothing about motivation if there is none.
+                </p>
+              </div>
+
               {reqBusy && (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -583,7 +1067,9 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
           <Card>
             <CardHeader>
               <CardTitle className="text-base">4. Style and tone</CardTitle>
-              <CardDescription>Get suggestions, tap the ones you want, and add your own notes.</CardDescription>
+              <CardDescription>
+                Get suggestions, tap the ones you want, then edit the sentence it writes for you.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Button variant="outline" size="sm" disabled={!ready || isBusy} onClick={suggestStyles}>
@@ -595,16 +1081,32 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
                   {suggestions.map((s) => (
                     <Badge
                       key={s}
-                      variant={style.chips.includes(s) ? 'default' : 'outline'}
-                      className="cursor-pointer capitalize"
-                      onClick={() => toggleChip(s)}
+                      variant={isSuggestionApplied(s) ? 'default' : 'outline'}
+                      className="cursor-pointer"
+                      onClick={() => applySuggestion(s)}
+                      title="Write this into your tone instructions"
                     >
                       {s}
                     </Badge>
                   ))}
                 </div>
               )}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="tone">How it should sound</Label>
+                  <Textarea
+                    id="tone"
+                    rows={3}
+                    className="mt-1"
+                    value={style.custom}
+                    onChange={(e) => setStyle((s) => ({ ...s, custom: e.target.value }))}
+                    placeholder="e.g. warm but formal, plain and direct, no cliches"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    One input, one source of truth. Suggestions are written in here so you can edit
+                    them like anything else.
+                  </p>
+                </div>
                 <div>
                   <Label>English variant</Label>
                   <Select
@@ -625,17 +1127,6 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
                   <p className="mt-1 text-xs text-muted-foreground">
                     {ENGLISH_VARIANTS.find((v) => v.id === (style.english || 'uk'))?.hint}
                   </p>
-                </div>
-                <div>
-                  <Label htmlFor="tone">Your own tone instructions</Label>
-                  <Textarea
-                    id="tone"
-                    rows={2}
-                    className="mt-1"
-                    value={style.custom}
-                    onChange={(e) => setStyle((s) => ({ ...s, custom: e.target.value }))}
-                    placeholder="e.g. confident but understated"
-                  />
                 </div>
               </div>
             </CardContent>
@@ -684,6 +1175,25 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
 
         {/* Draft */}
         <div className="space-y-4">
+          <SavedLetters
+            rows={savedLetters}
+            currentId={letterId}
+            continueId={continueLetterId}
+            loading={lettersLoading}
+            dirty={dirty}
+            hasWork={
+              paragraphs.length > 0 ||
+              title !== 'Untitled cover letter' ||
+              Boolean(job.trim()) ||
+              Boolean(appeals.trim()) ||
+              contextItems.length > 0
+            }
+            onOpen={requestOpen}
+            onDelete={setPendingDelete}
+            onNew={() => (dirty ? setNewOpen(true) : startNew())}
+            onRefresh={() => void refreshLetters()}
+          />
+
           <Card>
             <CardContent className="flex flex-wrap items-center gap-2 pt-6">
               <Input value={title} onChange={(e) => setTitle(e.target.value)} className="w-56" />
@@ -712,9 +1222,22 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
                 <RotateCcw className="h-4 w-4 mr-1" />
                 Reset
               </Button>
-              <Button variant="outline" size="sm" disabled={!paragraphs.length} onClick={save}>
-                <Save className="h-4 w-4 mr-1" />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!paragraphs.length || saveState === 'saving'}
+                onClick={() => void save()}
+              >
+                {saveState === 'saving' ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-1" />
+                )}
                 Save
+              </Button>
+              <Button variant="outline" size="sm" disabled={!paragraphs.length} onClick={exportPdf}>
+                <FileText className="h-4 w-4 mr-1" />
+                Download PDF
               </Button>
               <Button variant="outline" size="sm" disabled={!paragraphs.length} onClick={download}>
                 <Download className="h-4 w-4 mr-1" />
@@ -722,8 +1245,28 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
               </Button>
               <Button variant="outline" size="sm" disabled={!paragraphs.length} onClick={print}>
                 <Printer className="h-4 w-4 mr-1" />
-                Print / PDF
+                Print
               </Button>
+              {paragraphs.length > 0 && (
+                <span
+                  className={`ml-auto text-xs ${
+                    words >= 250 && words <= 400 ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'
+                  }`}
+                >
+                  {words} words
+                </span>
+              )}
+              {letterId && (
+                <p className="w-full text-[11px] text-muted-foreground">
+                  {saveState === 'saving'
+                    ? 'Saving…'
+                    : saveState === 'error'
+                      ? 'The last save failed — press Save to try again.'
+                      : dirty
+                        ? 'Unsaved changes — this letter saves itself as you work.'
+                        : 'Saved to your account.'}
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -764,6 +1307,49 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
             </Card>
           )}
 
+          {ruleOffer && (
+            <Card className="border-primary/50 bg-primary/5">
+              <CardContent className="pt-4 space-y-2">
+                <p className="text-sm font-medium">
+                  You keep dismissing “{ruleOffer.label}” flags.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Want it written into your rules so the letter stops doing it?
+                </p>
+                <p className="rounded-md border border-border bg-background p-2 text-xs">{ruleOffer.line}</p>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={addRuleOffer}>
+                    Add to my rules
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setRuleOffersDismissed((d) => [...d, ruleOffer.kind])}
+                  >
+                    No thanks
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {openQuestions.length > 0 && (
+            <Card className="border-primary/40 bg-primary/5">
+              <CardContent className="pt-4 space-y-2">
+                <p className="text-sm font-medium">Waiting on you</p>
+                {openQuestions.map((q) => (
+                  <p key={q} className="text-xs text-muted-foreground">
+                    {q}
+                  </p>
+                ))}
+                <p className="text-xs text-muted-foreground">
+                  Answer one in the change box and it will be used. Left unanswered, the next draft
+                  leaves that material out rather than guessing again.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           {paragraphs.length === 0 ? (
             <Card>
               <CardContent className="py-16 text-center text-muted-foreground">
@@ -779,6 +1365,12 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
                   index={i}
                   total={paragraphs.length}
                   busy={isBusy}
+                  decisions={decisions}
+                  onDecision={decide}
+                  onAskInput={(question) => {
+                    setInstruction(question);
+                    setPendingQuestion(question);
+                  }}
                   onEdit={(text) => {
                     const next = [...paragraphs];
                     next[i] = { ...next[i], text };
@@ -824,7 +1416,10 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
                   <Textarea
                     rows={3}
                     value={instruction}
-                    onChange={(e) => setInstruction(e.target.value)}
+                    onChange={(e) => {
+                      setInstruction(e.target.value);
+                      if (pendingQuestion && e.target.value !== pendingQuestion) setPendingQuestion(null);
+                    }}
                     placeholder="e.g. shorter, lead with the team leadership example"
                   />
                   <Button disabled={isBusy || !instruction.trim()} onClick={applyInstruction}>
@@ -837,6 +1432,59 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
           )}
         </div>
       </div>
+
+      <AlertDialog open={Boolean(pendingOpen)} onOpenChange={(open) => !open && setPendingOpen(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>You have unsaved changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              Opening “{pendingOpen ? savedLetterSummary(pendingOpen).title : 'that letter'}” replaces the
+              draft on screen. Keep your changes first, or open the saved letter without them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void openAndReplace(false)}>Discard and open</AlertDialogAction>
+            <AlertDialogAction onClick={() => void openAndReplace(true)}>Save and open</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this letter?</AlertDialogTitle>
+            <AlertDialogDescription>
+              “{pendingDelete ? savedLetterSummary(pendingDelete).title : 'This letter'}” will be removed
+              from your account. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmDelete()}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={newOpen} onOpenChange={setNewOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start a new letter?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your unsaved changes to this draft will be lost. Your background, style and rules stay.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={startNew}>Start new</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
         <AlertDialogContent>

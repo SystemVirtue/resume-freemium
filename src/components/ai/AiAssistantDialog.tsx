@@ -37,14 +37,16 @@ const OPTIONS: Array<{
     title: 'OpenRouter free models',
     cost: 'Free tier models on your own account',
     setup: 'Paste your OpenRouter API key',
-    detail: 'Use your own OpenRouter key and pick any free model. Your key stays in this browser only.',
+    detail:
+      'Use your own OpenRouter key and pick any free model. The key is stored on the server and never sent from this browser.',
   },
   {
     id: 'puter',
     title: 'Puter.com free models',
     cost: 'Free with a Puter account',
     setup: 'Sign in to puter.com in a popup',
-    detail: 'Puter covers the model cost. No keys to manage — just sign in once per browser.',
+    detail:
+      'Puter covers the model cost. No keys to manage — just sign in once per browser. This one runs in the browser, using your own Puter session; the other providers go through our server.',
   },
 ];
 
@@ -58,8 +60,28 @@ interface Props {
 export const AiAssistantDialog: React.FC<Props> = ({ open, onOpenChange, welcome }) => {
   const { settings, setProvider, setModel, setOpenRouterKey, puterReady, refreshPuter, isProviderReady } =
     useAiSettings();
-  const [keyDraft, setKeyDraft] = useState(settings.openRouterKey || '');
+  const [keyDraft, setKeyDraft] = useState('');
+  const [savingKey, setSavingKey] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
+
+  // The key is written to the server and never comes back to this component.
+  const handleSaveKey = async () => {
+    setSavingKey(true);
+    try {
+      const set = await setOpenRouterKey(keyDraft.trim() || null);
+      setKeyDraft('');
+      toast({
+        title: set ? 'Key saved on the server' : 'Key removed',
+        description: set
+          ? 'Requests now go through the server, so the key stays out of your browser.'
+          : undefined,
+      });
+    } catch (err: any) {
+      toast({ title: 'Could not save that key', description: err?.message, variant: 'destructive' });
+    } finally {
+      setSavingKey(false);
+    }
+  };
 
   const handlePuterSignIn = async () => {
     setSigningIn(true);
@@ -135,16 +157,16 @@ export const AiAssistantDialog: React.FC<Props> = ({ open, onOpenChange, welcome
                         value={keyDraft}
                         onChange={(e) => setKeyDraft(e.target.value)}
                       />
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          setOpenRouterKey(keyDraft.trim() || null);
-                          toast({ title: keyDraft.trim() ? 'Key saved in this browser' : 'Key removed' });
-                        }}
-                      >
+                      <Button variant="secondary" disabled={savingKey} onClick={handleSaveKey}>
+                        {savingKey && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                         Save
                       </Button>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      {settings.openRouterKeySet
+                        ? 'A key is stored on the server. Paste a new one to replace it, or save an empty field to remove it.'
+                        : 'Nothing stored yet. The key is sent once, kept on the server, and never read back.'}
+                    </p>
                     <Label htmlFor="or-model">Model</Label>
                     <Input
                       id="or-model"

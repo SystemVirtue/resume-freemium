@@ -2,29 +2,47 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
   Bell,
+  Check,
+  Eye,
+  CornerDownRight,
   Flag,
   Lock,
   LockOpen,
   Plus,
   Quote,
   RefreshCw,
+  MessageSquare,
   Repeat,
   Scale,
   Sparkles,
+  Split,
   Trash2,
+  TrendingUp,
 } from 'lucide-react';
-import { Paragraph } from '@/lib/coverLetter';
+import {
+  Flag as LetterFlag,
+  FlagDecision,
+  FlagDecisions,
+  FlagKind,
+  FLAG_KIND_META,
+  Paragraph,
+  visibleFlags,
+} from '@/lib/coverLetter';
 
 interface ParagraphCardProps {
   paragraph: Paragraph;
   index: number;
   total: number;
   busy: boolean;
+  decisions: FlagDecisions;
+  onDecision: (flagId: string, decision: FlagDecision | null) => void;
+  onAskInput: (question: string) => void;
   onEdit: (text: string) => void;
   onToggleLock: () => void;
   onMove: (dir: -1 | 1) => void;
@@ -34,16 +52,59 @@ interface ParagraphCardProps {
   onInsertAbove: () => void;
 }
 
+/** One icon per flag kind, so the kinds are told apart without reading the label. */
+const KIND_ICON: Record<FlagKind, React.ComponentType<{ className?: string }>> = {
+  unsupported: AlertTriangle,
+  misattributed: Scale,
+  echo: Flag,
+  rule: Bell,
+  employer: Eye,
+  pivot: Split,
+  unresolved: CornerDownRight,
+  scope: TrendingUp,
+  needsInput: MessageSquare,
+  repetition: Repeat,
+};
+
+const KIND_COLOR: Record<FlagKind, string> = {
+  unsupported: 'text-destructive',
+  misattributed: 'text-destructive',
+  echo: 'text-destructive',
+  rule: 'text-primary',
+  employer: 'text-amber-700 dark:text-amber-400',
+  pivot: 'text-amber-700 dark:text-amber-400',
+  unresolved: 'text-amber-700 dark:text-amber-400',
+  scope: 'text-muted-foreground',
+  needsInput: 'text-primary',
+  repetition: 'text-muted-foreground',
+};
+
+const KIND_BORDER: Record<FlagKind, string> = {
+  unsupported: 'border-destructive/40',
+  misattributed: 'border-destructive/40',
+  echo: 'border-destructive/40',
+  rule: 'border-primary/40',
+  employer: 'border-amber-500/40',
+  pivot: 'border-amber-500/40',
+  unresolved: 'border-amber-500/40',
+  scope: 'border-border',
+  needsInput: 'border-primary/40',
+  repetition: 'border-border',
+};
+
 /**
- * One flag area, three distinct kinds of problem told apart at a glance:
- * red for factual problems (unsupported, misattributed, ad echoes),
- * primary for rule conflicts, amber for repetition flags.
+ * One card per paragraph. Flags are grouped by kind so each kind reads as its own
+ * thing, and every flag carries Approve and Dismiss: dismissed flags are not shown
+ * again and their wording is protected on the next revision.
  */
 export const ParagraphCard: React.FC<ParagraphCardProps> = ({
   paragraph,
   index,
   total,
   busy,
+  decisions,
+  onDecision,
+  onAskInput,
   onEdit,
   onToggleLock,
   onMove,
@@ -52,24 +113,27 @@ export const ParagraphCard: React.FC<ParagraphCardProps> = ({
   onRemove,
   onInsertAbove,
 }) => {
-  const unsupported = paragraph.unsupported?.filter(Boolean) || [];
-  const misattributed = paragraph.misattributed?.filter(Boolean) || [];
-  const echoes = paragraph.echoes?.filter(Boolean) || [];
-  const ruleFlags = paragraph.ruleFlags?.filter((r) => r.rule || r.fragment) || [];
-  const repetition = paragraph.repetition?.filter(Boolean) || [];
+  const flags = visibleFlags(paragraph, decisions);
   const sources = paragraph.sources?.filter((s) => s.source || s.claim) || [];
-  const factualCount = unsupported.length + misattributed.length + echoes.length;
+
+  // Group in priority order; visibleFlags is already sorted.
+  const groups: { kind: FlagKind; items: LetterFlag[] }[] = [];
+  for (const f of flags) {
+    const last = groups[groups.length - 1];
+    if (last && last.kind === f.kind) last.items.push(f);
+    else groups.push({ kind: f.kind, items: [f] });
+  }
+
+  const topTone = groups[0]?.kind;
 
   return (
     <Card
       className={
-        factualCount > 0
-          ? 'border-destructive/60'
-          : ruleFlags.length > 0 || repetition.length > 0
-            ? 'border-primary/40'
-            : paragraph.locked
-              ? 'border-primary/50'
-              : undefined
+        topTone
+          ? KIND_BORDER[topTone]
+          : paragraph.locked
+            ? 'border-primary/50'
+            : undefined
       }
     >
       <CardContent className="pt-4 space-y-3">
@@ -98,91 +162,71 @@ export const ParagraphCard: React.FC<ParagraphCardProps> = ({
           onChange={(e) => onEdit(e.target.value)}
         />
 
-        {(factualCount > 0 || ruleFlags.length > 0 || repetition.length > 0) && (
-          <div
-            className={`rounded-md border p-3 space-y-2 ${
-              factualCount > 0
-                ? 'border-destructive/50 bg-destructive/5'
-                : ruleFlags.length > 0
-                  ? 'border-primary/50 bg-primary/5'
-                  : 'border-amber-500/50 bg-amber-500/5'
-            }`}
-          >
-            {unsupported.length > 0 && (
-              <div>
-                <p className="flex items-center gap-1 text-xs font-medium text-destructive">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Not supported by your background — check or remove
-                </p>
-                {unsupported.map((s, i) => (
-                  <p key={`u${i}`} className="text-xs text-muted-foreground">
-                    “{s}”
-                  </p>
-                ))}
-              </div>
-            )}
+        {groups.length > 0 && (
+          <div className="space-y-2">
+            {groups.map(({ kind, items }) => {
+              const meta = FLAG_KIND_META[kind];
+              const Icon = KIND_ICON[kind];
+              return (
+                <div key={kind} className={`rounded-md border p-3 space-y-2 ${KIND_BORDER[kind]}`}>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className={`flex items-center gap-1 text-xs font-medium ${KIND_COLOR[kind]}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                      {meta.label}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">{meta.hint}</span>
+                  </div>
 
-            {misattributed.length > 0 && (
-              <div>
-                <p className="flex items-center gap-1 text-xs font-medium text-destructive">
-                  <Scale className="h-3.5 w-3.5" />
-                  Credited to the wrong employer or context
-                </p>
-                {misattributed.map((s, i) => (
-                  <p key={`m${i}`} className="text-xs text-muted-foreground">
-                    {s}
-                  </p>
-                ))}
-              </div>
-            )}
-
-            {echoes.length > 0 && (
-              <div>
-                <p className="flex items-center gap-1 text-xs font-medium text-destructive">
-                  <Flag className="h-3.5 w-3.5" />
-                  Echoes the ad's wording
-                </p>
-                {echoes.map((s, i) => (
-                  <p key={`e${i}`} className="text-xs text-muted-foreground">
-                    “{s}”
-                  </p>
-                ))}
-              </div>
-            )}
-
-            {ruleFlags.length > 0 && (
-              <div>
-                <p className="flex items-center gap-1 text-xs font-medium text-primary">
-                  <Bell className="h-3.5 w-3.5" />
-                  Rule conflicts
-                </p>
-                {ruleFlags.map((r, i) => (
-                  <p key={`r${i}`} className="text-xs text-muted-foreground">
-                    {r.fragment ? (
-                      <>
-                        Breaks your rule “{r.rule}”: “{r.fragment}”
-                      </>
-                    ) : (
-                      <>Breaks your rule: {r.rule}</>
-                    )}
-                  </p>
-                ))}
-              </div>
-            )}
-
-            {repetition.length > 0 && (
-              <div>
-                <p className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
-                  <Repeat className="h-3.5 w-3.5" />
-                  Repetition
-                </p>
-                {repetition.map((s, i) => (
-                  <p key={`p${i}`} className="text-xs text-muted-foreground">
-                    {s}
-                  </p>
-                ))}
-              </div>
-            )}
+                  {items.map((f) => (
+                    <div key={f.id} className="flex flex-wrap items-start gap-2">
+                      <p className="flex-1 min-w-[200px] text-xs text-muted-foreground">
+                        {kind === 'needsInput' ? (
+                          <>{f.fragment}</>
+                        ) : (
+                          <>
+                            “<span className="bg-yellow-200/60 dark:bg-yellow-500/20">{f.fragment}</span>”
+                            {f.detail !== f.fragment && <span className="ml-1">— {f.detail}</span>}
+                          </>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        {kind === 'needsInput' && (
+                          <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]" onClick={() => onAskInput(f.fragment || f.detail)}>
+                            Answer
+                          </Button>
+                        )}
+                        {f.decision === 'approved' ? (
+                          <Badge variant="secondary" className="h-6 text-[11px] font-normal">
+                            <Check className="h-3 w-3 mr-1" />
+                            Approved — will be addressed
+                          </Badge>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-[11px]"
+                            title="Address this in the next revision"
+                            onClick={() => onDecision(f.id, 'approved')}
+                          >
+                            <Check className="h-3 w-3 mr-1" />
+                            Approve
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[11px]"
+                          title="This is fine — do not flag it again"
+                          onClick={() => onDecision(f.id, 'dismissed')}
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         )}
 
