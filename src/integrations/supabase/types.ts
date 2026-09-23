@@ -116,7 +116,6 @@ export type Database = {
           id: string
           last_name: string | null
           onboarding_seen: boolean
-          openrouter_key: string | null
           paid_templates_access: boolean | null
           subscription_end: string | null
           subscription_status: string | null
@@ -132,7 +131,6 @@ export type Database = {
           id?: string
           last_name?: string | null
           onboarding_seen?: boolean
-          openrouter_key?: string | null
           paid_templates_access?: boolean | null
           subscription_end?: string | null
           subscription_status?: string | null
@@ -148,7 +146,6 @@ export type Database = {
           id?: string
           last_name?: string | null
           onboarding_seen?: boolean
-          openrouter_key?: string | null
           paid_templates_access?: boolean | null
           subscription_end?: string | null
           subscription_status?: string | null
