@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Tooling scratch: Freebuff's project marker and the Supabase CLI's local state
+.freebuff/
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,73 +1,83 @@
-# Welcome to your Lovable project
+# Job Goblin — Resume & Cover Letter Crafter
 
-## Project info
+An application for writing cover letters that make a truthful, specific,
+evidence-backed case for one candidate with one employer — and for saying so when it
+has not managed it.
 
-**URL**: https://lovable.dev/projects/191753c2-5275-424a-a156-ed2158a66115
+The letter is planned before it is written: the job ad is read for what the role
+actually needs, the candidate's own material is read for what they actually have, and
+each requirement is matched to evidence or marked as having none. The draft is then
+validated against the candidate's material, reviewed by something independent of the
+writer, repaired if the review says it must be, and put to a gate that decides whether
+it is finished. Motivation is never invented, and neither is a metric.
 
-## How can I edit this code?
+How the pipeline works stage by stage, what each one owns, and what the verdicts mean:
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
-There are several ways of editing your application.
+## Setup
 
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/191753c2-5275-424a-a156-ed2158a66115) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+Node.js and npm.
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
 npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The app needs Supabase for auth, saved letters and AI calls (`.env` carries
+`VITE_SUPABASE_URL`, `VITE_SUPABASE_PROJECT_ID` and the publishable key), and the
+`ai-chat` edge function needs a model provider configured on the server.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Commands
 
-**Use GitHub Codespaces**
+```sh
+npm run dev          # dev server
+npm run build        # production build
+npm test             # full suite, offline, no key needed
+npm run typecheck    # app + tests/scripts projects
+npm run lint         # 0 errors expected; warnings are the any-at-the-boundary kind
+npm run eval         # corpus: the pre-v2 prompt against the staged pipeline
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Running the corpus
 
-## What technologies are used for this project?
+The harness in `scripts/eval-corpus.ts` runs a fixed 18-case corpus and reports a
+distribution rather than a best case, because the thing being measured is variance.
 
-This project is built with:
+```sh
+EVAL_MODE=both EVAL_REPEATS=3 npm run eval      # legacy vs pipeline, 3 per case
+EVAL_IDS=technical,junior EVAL_REPEATS=3 npm run eval
+EVAL_VERBOSE=1 npm run eval                     # a line per generation
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+A live run needs a model key. Put `OPENROUTER_API_KEY=sk-or-...` in `.env.local`
+(gitignored) or export it; with no key the script explains that and stops rather than
+pretending. Without any key the whole pipeline can still be exercised offline from a
+cassette of answers:
 
-## How can I deploy this project?
+```sh
+EVAL_CASSETTE=tests/fixtures/agent-cassette.json EVAL_MODE=both npm run eval
+```
 
-Simply open [Lovable](https://lovable.dev/projects/191753c2-5275-424a-a156-ed2158a66115) and click on Share -> Publish.
+The cassette stands in for the model and runs every real stage, planner through gate.
+It reports a quality level, not a spread — a cassette replays the same answer, so it
+cannot measure variance. `EVAL_*` variables are documented at the top of the script.
 
-## Can I connect a custom domain to my Lovable project?
+## Where the AI key lives
 
-Yes, you can!
+Nothing in the browser holds a model credential. A user's own OpenRouter key is stored
+against their profile and read only by the `ai-chat` edge function; the workspace
+provider key lives in that function's environment. Puter is the exception, because its
+free tier signs the user into their own account in a popup.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Using Lovable
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+**Project**: https://lovable.dev/projects/191753c2-5275-424a-a156-ed2158a66115
+
+You can keep working in Lovable: changes made there are committed to this repo, and
+changes pushed here are reflected there. You can also clone the repo and work locally
+as above, edit files directly on GitHub, or open a GitHub Codespace.
+
+To deploy, open [Lovable](https://lovable.dev/projects/191753c2-5275-424a-a156-ed2158a66115)
+and use Share → Publish. Custom domains: Project → Settings → Domains → Connect Domain.
+
+Built with Vite, TypeScript, React, shadcn-ui and Tailwind CSS.

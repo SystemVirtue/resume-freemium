@@ -1,0 +1,899 @@
+{
+  "_note": "A cassette stands in for the model, so the corpus can run end to end without an API key. Each value is the answer one stage would have returned; keys are '<case>:<stage>'. The legacy answers were written from the resume and the ad alone, before the plan existed, so the comparison is not the same author grading his own plan. This is one author's sample, not a distribution: it reports a quality level and exercises every stage, and it can never report variance.",
+  "technical:legacy": {
+    "paragraphs": [
+      "I am writing to express my interest in the Senior Backend Engineer role on the payments platform. I have eight years of experience building payment and data services in Python and Go, and your description of owning a service from schema through deployment is close to the work I do today.",
+      "At Ledgerly I am the senior engineer on the reconciliation service, where I own the schema, write the migrations and chair the weekly incident review. The service settles transactions for our retail partners, and I am the person who owns how it behaves under load. Before that, at Brightfold, I built the internal reporting API and migrated forty endpoints away from a monolith. The reconciliation work is unglamorous and unforgiving: a broken run is invisible until a partner notices it.",
+      "My toolkit is Python, Go, PostgreSQL, Terraform and AWS, and I hold the AWS Solutions Architect Associate certification. I am comfortable in a fast-paced environment and I enjoy working closely with product managers to turn their requirements into technical plans. I have mentored colleagues informally and I am confident about taking on the code review and mentoring responsibilities you describe. I am used to explaining technical decisions to people who do not write code, and to being the person who says when something is not ready.",
+      "I am a dependable engineer who prefers to leave a service easier to operate than I found it, and I would welcome the opportunity to discuss my application at a time that suits you. Thank you for your time and consideration."
+    ]
+  },
+  "technical:legacy:ground": {
+    "paragraphs": [
+      {
+        "sources": [
+          { "claim": "eight years building payment and data services", "source": "Summary: backend engineer, eight years" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": ["owning a service from schema through deployment"],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "owns the reconciliation schema and migrations", "source": "Senior Backend Engineer at Ledgerly" },
+          { "claim": "migrated forty endpoints", "source": "Backend Engineer at Brightfold" }
+        ],
+        "unsupported": ["I am the person who owns how it behaves under load"],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "Python, Go, PostgreSQL, Terraform, AWS", "source": "Skills" },
+          { "claim": "AWS Solutions Architect Associate", "source": "Certifications" }
+        ],
+        "unsupported": [
+          "working closely with product managers to turn their requirements into technical plans",
+          "mentored colleagues informally"
+        ],
+        "misattributed": [],
+        "echoes": ["the code review and mentoring responsibilities you describe"],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      }
+    ]
+  },
+  "technical:plan": {
+    "purpose": "Design new services on the payments platform, keep the reconciliation service reliable, and raise the level of two mid-level engineers.",
+    "seniority": "senior",
+    "priorities": [
+      "Owning a service end to end, from schema to deployment",
+      "Reliability of a service that settles for retail brands",
+      "Reviewing code and mentoring mid-level engineers"
+    ],
+    "terminology": [
+      "own the design end to end",
+      "schemas and APIs",
+      "deployment",
+      "reconciliation",
+      "on-call rotation",
+      "review the work of two mid-level engineers"
+    ],
+    "entries": [
+      {
+        "requirement": "Designs and builds backend services end to end",
+        "need": "Someone who can take a service from its schema through to production without being supervised",
+        "evidence": "owns the reconciliation service, writes the schema migrations",
+        "strength": "strong",
+        "source": "Senior Backend Engineer at Ledgerly",
+        "claim": "I own the reconciliation service at Ledgerly, from its schema and migrations through to what happens when it goes wrong.",
+        "gap": ""
+      },
+      {
+        "requirement": "Reviews code and mentors mid-level engineers",
+        "need": "A senior engineer who raises the level of two engineers rather than doing the work for them",
+        "evidence": "chairs the weekly incident review",
+        "strength": "partial",
+        "source": "Senior Backend Engineer at Ledgerly",
+        "claim": "I chair the weekly incident review at Ledgerly, which is where the team works through what the last failure taught us.",
+        "gap": ""
+      },
+      {
+        "requirement": "Turns product requirements into technical plans",
+        "need": "Someone who converts what product asks for into a change plan that can be defended",
+        "evidence": "writes the schema migrations",
+        "strength": "partial",
+        "source": "Senior Backend Engineer at Ledgerly",
+        "claim": "I write the schema migrations for the reconciliation service, which is where a product change becomes a technical plan.",
+        "gap": ""
+      },
+      {
+        "requirement": "Stays on call to keep production reliable",
+        "need": "Someone who will carry one week in six of production responsibility",
+        "evidence": "chairs the weekly incident review",
+        "strength": "partial",
+        "source": "Senior Backend Engineer at Ledgerly",
+        "claim": "I chair the weekly incident review and have held production responsibility for the reconciliation service since 2020.",
+        "gap": ""
+      }
+    ],
+    "whyThisRole": []
+  },
+  "technical:draft": {
+    "paragraphs": [
+      "The role is to own new services on a payments platform and to be answerable for them once they are live, which is what I do at Ledgerly: I look after the service that settles transactions for our retail partners, I write its schema and migrations, and I am the person the team turns to when it misbehaves. I have spent eight years on payment and data services, mostly in Python and Go, and the last six on a service where a silent failure is not survivable.",
+      "The reconciliation service at Ledgerly is mine from schema to deployment: I designed its tables and the migrations that change them, I shipped it with Terraform onto AWS, and I chair the review that works out what went wrong whenever it does. Holding that responsibility has taught me to design in the direction of what will break, which is the habit this role asks for more than any single tool.",
+      "Your mid-level engineers are the part of this I would enjoy most. I do the same work today at Ledgerly, where I write the schema migrations for the reconciliation service: that is where a product change becomes a technical plan, and where I have learned to say what a change will cost before anyone commits to it. I chair the weekly incident review, which is where the fastest way to find out whether I understand a design has repeatedly turned out to be explaining it to someone who has not seen it before.",
+      "I am applying because the scale here is close to the one I work at now, and because the reliability problem on a service that settles for retail brands is the problem I have spent six years on. I am in Manchester and would work the hybrid pattern you describe. I would welcome a conversation about how I approach schema design on a service where a silent failure is not survivable."
+    ]
+  },
+  "technical:critique": {
+    "findings": [
+      {
+        "code": "REPETITION",
+        "paragraph": 4,
+        "passage": "on a service where a silent failure is not survivable",
+        "problem": "The same phrase closes paragraph 2 and paragraph 4, so the last thing the reader takes away is a sentence they have already read.",
+        "fix": "Keep it in paragraph 2 where it does the work, and end on the conversation instead.",
+        "severity": "should-fix"
+      },
+      {
+        "code": "WEAK_ROLE_CONNECTION",
+        "paragraph": 4,
+        "passage": "I am applying because the scale here is close to the one I work at now",
+        "problem": "The reason for applying is inferred from a comparison the writer made, not something the candidate has said. It is defensible but thin, and it is the only sentence answering why this role.",
+        "fix": "If the candidate can say what draws them to payments or to this platform, use that. Otherwise drop the clause rather than dressing up an inference.",
+        "severity": "should-fix"
+      }
+    ],
+    "keep": [
+      "The opening paragraph names the role and the candidate's own service in the same breath.",
+      "Paragraph 2 gives the requirement a specific result rather than an adjective."
+    ],
+    "summary": "The case is made with evidence and the evidence is attributed correctly. Two things to fix: a phrase repeated from paragraph 2 in the closing, and a why-this-role sentence that rests on an inference rather than on anything the candidate has said."
+  },
+  "technical:ground": {
+    "paragraphs": [
+      {
+        "sources": [
+          { "claim": "looks after the service that settles transactions", "source": "Senior Backend Engineer at Ledgerly: owns the reconciliation service" },
+          { "claim": "eight years on payment and data services", "source": "Summary: eight years building payment and data services" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "designed the tables and migrations", "source": "writes the schema migrations" },
+          { "claim": "shipped it with Terraform onto AWS", "source": "Terraform, AWS" },
+          { "claim": "chairs the review", "source": "chairs the weekly incident review" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "writes the schema migrations", "source": "Senior Backend Engineer at Ledgerly" },
+          { "claim": "chairs the weekly incident review", "source": "Senior Backend Engineer at Ledgerly" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "the problem I have spent six years on", "source": "Senior Backend Engineer at Ledgerly (2020-present)" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      }
+    ]
+  },
+
+  "career-change:legacy": {
+    "paragraphs": [
+      "I am writing to apply for the Data Analyst position at your charity. I am a secondary school maths teacher with eight years of classroom experience, and I am looking to move into data analysis.",
+      "Over the last eight years I have built the maths department's tracking spreadsheet, analysed exam results each term and presented my findings to the head of department. My classroom practice is quantitative in a way that surprises people: I set the assessments, mark them, and work out what each class has actually understood before I decide what to teach next. I have taught myself SQL over the last six months and I am also learning Python. I believe these skills transfer well to a data analyst role, and I am confident I could pick up your systems quickly.",
+      "I am a quick learner and I am passionate about using data to improve outcomes. Teaching has given me excellent communication skills, and I am very comfortable explaining complex ideas to people who are not specialists. I am a confident user of Excel with a good eye for detail. The quarterly reporting you describe appeals to me because a term's results work on the same cycle: collect them, check them, explain them, and be ready to do it again three months later. I am excited about the opportunity to work in a health charity where I feel my values align with the organisation's mission.",
+      "I would be grateful for the opportunity to discuss my application further, and I am happy to complete any technical test you require. Thank you for your time and consideration."
+    ]
+  },
+  "career-change:legacy:ground": {
+    "paragraphs": [
+      {
+        "sources": [
+          { "claim": "secondary school maths teacher, eight years", "source": "Summary: Secondary school maths teacher" },
+          { "claim": "moving into data analysis", "source": "Summary: moving into data analysis" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "built the department tracking spreadsheet", "source": "Maths Teacher at St Aiden's Academy" },
+          { "claim": "analyses exam results each term and presents them", "source": "Maths Teacher at St Aiden's Academy" },
+          { "claim": "sets and marks assessments", "source": "Maths Teacher at St Aiden's Academy: teaches five classes" },
+          { "claim": "SQL self-taught six months, Python basics", "source": "Skills" }
+        ],
+        "unsupported": ["I am confident I could pick up your systems quickly"],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [{ "claim": "Excel", "source": "Skills: Excel" }],
+        "unsupported": [
+          "I am a quick learner",
+          "my values align with the organisation's mission"
+        ],
+        "misattributed": [],
+        "echoes": ["explaining complex ideas to people who are not specialists"],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      }
+    ]
+  },
+  "career-change:plan": {
+    "purpose": "Produce the charity's quarterly impact reporting and the dashboards the fundraising team works from, and improve how data is collected at source.",
+    "seniority": "mid",
+    "priorities": [
+      "Quarterly impact reporting and dashboards",
+      "Explaining numbers to people who are not analysts",
+      "Improving how data is collected at source"
+    ],
+    "terminology": [
+      "impact report",
+      "dashboards",
+      "data collected at source",
+      "non-technical colleagues",
+      "SQL",
+      "clear thinking"
+    ],
+    "entries": [
+      {
+        "requirement": "Pulls and cleans data from several systems",
+        "need": "Someone who can take messy data out of more than one system and trust the result",
+        "evidence": "built the department's tracking spreadsheet",
+        "strength": "partial",
+        "source": "Maths Teacher at St Aiden's Academy",
+        "claim": "I built the tracking spreadsheet the maths department runs on, and I am the one who assembles the term's results in it before anything can be said about them.",
+        "gap": "Have you pulled data from more than one system, or mainly from one place you already control?"
+      },
+      {
+        "requirement": "Produces the quarterly impact report and dashboards",
+        "need": "Someone who can produce a recurring report and build something a non-analyst team will actually use",
+        "evidence": "analyses exam results each term and presents them",
+        "strength": "partial",
+        "source": "Maths Teacher at St Aiden's Academy",
+        "claim": "Each term I analyse our exam results and take the findings to the head of department.",
+        "gap": ""
+      },
+      {
+        "requirement": "Explains findings to non-technical colleagues",
+        "need": "Someone who can explain numbers to people who do not work with them, in writing and in a room",
+        "evidence": "presents results to the head of department; teaches five classes",
+        "strength": "strong",
+        "source": "Maths Teacher at St Aiden's Academy",
+        "claim": "I have spent eight years explaining numbers to people who did not choose to be in the room, and to a head of department who wants the conclusion.",
+        "gap": ""
+      },
+      {
+        "requirement": "Improves how data is collected at source",
+        "need": "Someone who changes how data is collected rather than cleaning up after it",
+        "evidence": "",
+        "strength": "none",
+        "source": "",
+        "claim": "",
+        "gap": ""
+      }
+    ],
+    "whyThisRole": []
+  },
+  "career-change:draft": {
+    "paragraphs": [
+      "I am applying for the Data Analyst role. I have taught maths for eight years, and the part of this work I am moving towards is the part I already do: taking a term's results and turning them into something a room of non-specialists can decide from.",
+      "The evidence I would put first is the explaining. My job is to stand in front of five classes of teenagers who did not choose the subject and make a number mean something to them. Each term I also analyse our exam results and present them to the head of department, and the discipline in that is saying what the figures support and what they do not.",
+      "I have not done this in a charity, and I would be learning your systems from the start. What I have done is assemble the term's results in the tracking spreadsheet I built for the department, which is where I learned that most of the work is in deciding what a column actually means before you count it. My SQL is six months old and self-taught, and Python is still basics: I mention both because the role asks for them, not because either is the reason to hire me. What I would bring is the judgement about what a number is worth, and eight years of practice at being held to it.",
+      "I am drawn to this role because the reporting serves fundraising, which means the numbers are read by people who have to decide where money goes rather than by other analysts, and that is the reader I am used to. I am based in Leeds and remote work suits me. I would be glad to talk through the department tracking sheet I built and what it does not do well."
+    ]
+  },
+  "career-change:critique": {
+    "findings": [
+      {
+        "code": "OVERCLAIMING",
+        "paragraph": 3,
+        "passage": "and eight years of practice at being held to it",
+        "problem": "The candidate's material shows termly analysis and presentation, not accountability for the accuracy of data. \"Being held to it\" claims an accountability the resume never establishes.",
+        "fix": "Say what the background supports: eight years of reading a set of results closely before saying what it means.",
+        "severity": "must-fix"
+      },
+      {
+        "code": "WEAK_ROLE_CONNECTION",
+        "paragraph": 4,
+        "passage": "the numbers are read by people who have to decide where money goes rather than by other analysts",
+        "problem": "The reason for applying is built from the advertisement's description of the fundraising team, not from anything the candidate has said about wanting this work.",
+        "fix": "Tie the reason to the candidate's own preference for that kind of reader, or drop it. Do not construct motivation from the ad.",
+        "severity": "should-fix"
+      }
+    ],
+    "keep": [
+      "Paragraph 2 leads with the requirement the candidate is strongest on.",
+      "Paragraph 3 states plainly what the candidate has not done."
+    ],
+    "summary": "A good transferable-skills letter that is honest about the move. One overclaim to remove in paragraph 3, and a why-this-role sentence that is currently inferred from the ad rather than from the candidate."
+  },
+  "career-change:repair": {
+    "paragraphs": [
+      "I am applying for the Data Analyst role. I have taught maths for eight years, and the part of this work I am moving towards is the part I already do: taking a term's results and turning them into something a room of non-specialists can decide from.",
+      "The evidence I would put first is the explaining. My job is to stand in front of five classes of teenagers who did not choose the subject and make a number mean something to them. Each term I also analyse our exam results and present them to the head of department, and the discipline in that is saying what the figures support and what they do not.",
+      "I have not done this in a charity, and I would be learning your systems from the start. What I have done is assemble the term's results in the tracking spreadsheet I built for the department, which is where I learned that most of the work is in deciding what a column actually means before you count it. My SQL is six months old and self-taught, and Python is still basics: I mention both because the role asks for them, not because either is the reason to hire me. What I would bring is the habit of reading a set of results closely before saying what they mean, which is what eight years of marking has given me.",
+      "I am drawn to this role because I would rather write for readers who have to act on the numbers than for other analysts, and the reporting here goes to fundraising. I am based in Leeds and remote work suits me. I would be glad to talk through the department tracking sheet I built and what it does not do well."
+    ]
+  },
+  "career-change:critique-after": {
+    "findings": [
+      {
+        "code": "WEAK_ROLE_CONNECTION",
+        "paragraph": 4,
+        "passage": "the reporting here goes to fundraising",
+        "problem": "The reason for applying still leans on the advertisement's description of who reads the report. It is now tied to a preference the candidate can hold, but it remains the weakest sentence in the letter.",
+        "fix": "If the candidate can say why this charity, add one line. Otherwise keep it as it is: a stated preference is honest, and it is better than invented enthusiasm.",
+        "severity": "should-fix"
+      }
+    ],
+    "keep": [
+      "Paragraph 3 now claims only what the background supports.",
+      "The letter still leads with the candidate's strongest requirement."
+    ],
+    "summary": "The overclaim is gone and paragraph 3 is now defensible end to end. What remains is a thin why-this-role sentence, which is a fact the candidate has to supply rather than something the writer can fix."
+  },
+  "career-change:ground": {
+    "paragraphs": [
+      {
+        "sources": [
+          { "claim": "taught maths for eight years", "source": "Summary and Maths Teacher at St Aiden's Academy (2017-present)" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "teaches five classes", "source": "Maths Teacher at St Aiden's Academy" },
+          { "claim": "analyses exam results each term and presents them", "source": "Maths Teacher at St Aiden's Academy" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "built the department's tracking spreadsheet", "source": "Maths Teacher at St Aiden's Academy" },
+          { "claim": "SQL self-taught, six months; Python basics", "source": "Skills" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      }
+    ]
+  },
+
+  "junior:legacy": {
+    "paragraphs": [
+      "I am writing to apply for the Marketing Assistant role at your agency. I am a Marketing and Management graduate from the University of Sheffield, where I achieved a 2:1, and I am looking for my first role in an agency.",
+      "I have experience of social media and content from several places. During a summer internship at Fieldnote Agency I wrote social copy for two clients, scheduled their posts and compiled the weekly engagement report, which meant keeping several small jobs moving at once. At Kingsway Books I ran the shop's Instagram account, and as social secretary of the university's marketing society I looked after the society's channels and organised four events for around eighty students. I also spent three years in retail alongside my degree, which is where I learned to keep working when the shop is busy and the queue is long.",
+      "I am a friendly team player who enjoys a fast-paced environment, and I am detail-oriented when it matters. I am a quick learner and I am keen to pick up your tools and processes. I would like to work somewhere I can see a whole campaign rather than one part of it, and I would rather learn from people who do this every day than from a course. I am excited about the opportunity to start my career in an agency, and I am happy to take on any task that helps the team.",
+      "Thank you for considering my application. I would love the chance to talk about how I can contribute, and I am available for interview at any time."
+    ]
+  },
+  "junior:legacy:ground": {
+    "paragraphs": [
+      {
+        "sources": [
+          { "claim": "BA Marketing and Management, 2:1", "source": "Education" },
+          { "claim": "seeking a first agency role", "source": "Summary: seeking a first agency role" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "wrote social copy for two clients, scheduled posts, compiled the weekly engagement report", "source": "Marketing Intern at Fieldnote Agency (summer 2025)" },
+          { "claim": "ran the shop's Instagram account", "source": "Retail Assistant at Kingsway Books" },
+          { "claim": "spent three years in retail", "source": "Retail Assistant at Kingsway Books (2022-2025)" },
+          { "claim": "ran the society's channels and organised four events", "source": "Social Secretary, Marketing Society" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [],
+        "unsupported": ["I am a quick learner", "I am happy to take on any task that helps the team"],
+        "misattributed": [],
+        "echoes": ["I am keen to pick up your tools and processes"],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      }
+    ]
+  },
+  "junior:plan": {
+    "purpose": "Support two account managers with day-to-day campaign delivery, and keep the content, the calendar and the reporting decks moving.",
+    "seniority": "junior",
+    "priorities": [
+      "Day-to-day campaign delivery across two accounts",
+      "Writing and scheduling social content",
+      "Keeping the calendar and the reporting decks up to date"
+    ],
+    "terminology": ["campaign delivery", "social content", "reporting decks", "campaign calendar", "account managers"],
+    "entries": [
+      {
+        "requirement": "Supports campaign delivery for several accounts",
+        "need": "Someone who can keep several small jobs moving across more than one account",
+        "evidence": "wrote social copy for two clients at Fieldnote",
+        "strength": "partial",
+        "source": "Marketing Intern at Fieldnote Agency (summer 2025)",
+        "claim": "At Fieldnote I wrote social copy for two clients, so I have worked to two accounts at once, for one summer.",
+        "gap": ""
+      },
+      {
+        "requirement": "Writes and schedules social content",
+        "need": "Someone who can write a post and get it out on time",
+        "evidence": "wrote social copy; scheduled posts; ran the shop's Instagram",
+        "strength": "strong",
+        "source": "Fieldnote Agency and Kingsway Books",
+        "claim": "I have written and scheduled social content for two paying clients, and I ran the Instagram account at Kingsway Books through my shifts.",
+        "gap": ""
+      },
+      {
+        "requirement": "Keeps reporting decks and the calendar up to date",
+        "need": "Someone who keeps the reporting tidy without being chased",
+        "evidence": "compiled the weekly engagement report",
+        "strength": "partial",
+        "source": "Marketing Intern at Fieldnote Agency",
+        "claim": "I compiled the weekly engagement report at Fieldnote, which is the reporting habit this role is asking for.",
+        "gap": ""
+      },
+      {
+        "requirement": "Picks up the agency tools and process quickly",
+        "need": "Someone who will learn the studio's tools and briefing process without needing to be taught twice",
+        "evidence": "Canva, Meta Business Suite, basic Google Analytics",
+        "strength": "partial",
+        "source": "Skills",
+        "claim": "I work in Canva and Meta Business Suite, and each place I have worked has used a different set of tools.",
+        "gap": ""
+      }
+    ],
+    "whyThisRole": ["A first role in an agency, which the candidate's own summary states as what they are looking for"]
+  },
+  "junior:draft": {
+    "paragraphs": [
+      "I am applying for the Marketing Assistant role. I graduated in marketing and management at Sheffield this year, and I am looking for a first job in an agency, where I would see how campaigns are actually run rather than how they are taught.",
+      "The part I can already do is the content. At Fieldnote I wrote social copy for two clients and scheduled it across their channels, and I compiled the weekly engagement report. Before that I ran the Instagram account at Kingsway Books alongside my shifts, which taught me more about keeping something going when nobody is watching than any project at university did.",
+      "The part I would be learning is the account work itself. I have never sat in on a briefing to a designer, and I have never had to keep two client calendars straight through a busy week; the closest I have come is organising four events for the marketing society, where the scheduling turned out to be the hard part rather than the ideas. My reporting experience is a weekly engagement report, not a client deck, and I would expect to be slow at first.",
+      "On tools, I work in Canva and Meta Business Suite, and I have picked up whatever each place I have worked uses. I would rather find out what I am getting wrong early than guess, so a small piece of real work would tell you more about me than this letter can. I would be glad to come in and talk about the role."
+    ]
+  },
+  "junior:critique": {
+    "findings": [
+      {
+        "code": "WEAK_EMPLOYER_CONNECTION",
+        "paragraph": 0,
+        "passage": "I am applying for the Marketing Assistant role",
+        "problem": "Nothing in the letter ties it to this agency. As written it could be sent to any agency in Sheffield with the role title changed.",
+        "fix": "Use the two accounts and the briefing process the ad describes, or something the candidate knows about the studio, to make at least one sentence specific to this employer.",
+        "severity": "should-fix"
+      },
+      {
+        "code": "WEAK_CLOSING",
+        "paragraph": 4,
+        "passage": "a small piece of real work would tell you more about me than this letter can",
+        "problem": "This asks the employer to set the candidate a test. It is a reasonable thought, but a closing should invite a conversation rather than propose an assessment.",
+        "fix": "Invite the conversation and leave the assessment to them.",
+        "severity": "should-fix"
+      }
+    ],
+    "keep": [
+      "Paragraph 2 names what the candidate can already do without inflating it.",
+      "Paragraph 3 states plainly what she has not done, which is rare and reads well."
+    ],
+    "summary": "An honest junior letter that does not pretend to more than it has. Two fixes: it says nothing specific to this agency, and the closing asks for a test rather than a conversation."
+  },
+  "junior:ground": {
+    "paragraphs": [
+      {
+        "sources": [
+          { "claim": "graduated in marketing and management at Sheffield", "source": "Education" },
+          { "claim": "first agency role", "source": "Summary: seeking a first agency role" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "wrote social copy for two clients and scheduled posts", "source": "Marketing Intern at Fieldnote Agency" },
+          { "claim": "compiled the weekly engagement report", "source": "Marketing Intern at Fieldnote Agency" },
+          { "claim": "ran the shop's Instagram account", "source": "Retail Assistant at Kingsway Books" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "organised four events for the marketing society", "source": "Social Secretary, Marketing Society" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [{ "claim": "Canva, Meta Business Suite", "source": "Skills" }],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      }
+    ]
+  },
+
+  "missing-info:legacy": {
+    "paragraphs": [
+      "I am writing to apply for the Enterprise Account Manager position in Leeds. I am an account manager with four years of agency experience, currently managing six client accounts with a combined spend of nine hundred thousand pounds.",
+      "At Northlight Agency I own the client relationship day to day, run the monthly review calls and report on performance. My accounts are marketing clients rather than software customers, and the work is a mixture of campaign delivery and relationship management: I am the person the client calls first when something goes wrong, and I am the one who has to explain what happened and what we are doing about it. I have brought two clients back from cancellation after a difficult campaign, which shows that I can hold a relationship together when it is under pressure.",
+      "I am used to working with senior stakeholders and I am comfortable negotiating commercial terms. I would bring a track record of growing and retaining enterprise accounts, and I am confident about building account plans with customers and reporting forecast accuracy to leadership. I keep my accounts' reporting in order, I am comfortable working towards clear targets, and I am a results-driven and organised person.",
+      "I know that moving from agency work into software is a real step, and I am looking for a role where the accounts are large enough that the relationship itself is the job. I would welcome the opportunity to discuss the role further and I can make myself available at short notice. Thank you for your consideration."
+    ]
+  },
+  "missing-info:legacy:ground": {
+    "paragraphs": [
+      {
+        "sources": [
+          { "claim": "account manager, four years, agency", "source": "Summary and Northlight Agency" },
+          { "claim": "manages six client accounts, £900k combined spend", "source": "Account Manager at Northlight Agency (2023-present)" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "runs monthly review calls", "source": "Account Manager at Northlight Agency" },
+          { "claim": "brought two clients back from cancellation", "source": "Account Manager at Northlight Agency" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [],
+        "unsupported": [
+          "a track record of growing and retaining enterprise accounts",
+          "reporting forecast accuracy to leadership"
+        ],
+        "misattributed": [],
+        "echoes": [
+          "building account plans with customers and reporting forecast accuracy to leadership"
+        ],
+        "scope": ["four years of agency experience"],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      }
+    ]
+  },
+  "missing-info:plan": {
+    "purpose": "Personally own a portfolio of enterprise software accounts, accountable for renewals and growth on each.",
+    "seniority": "mid",
+    "priorities": [
+      "Personally owning enterprise accounts",
+      "Negotiating six-figure renewals with procurement",
+      "Forecast accuracy reported to leadership"
+    ],
+    "terminology": ["own a portfolio of enterprise accounts", "six-figure renewal", "account plan", "forecast accuracy", "procurement"],
+    "entries": [
+      {
+        "requirement": "Owns a portfolio of enterprise accounts",
+        "need": "Someone who has personally owned enterprise accounts, not supported someone else's",
+        "evidence": "manages six client accounts, £900k combined spend",
+        "strength": "partial",
+        "source": "Account Manager at Northlight Agency (2023-present)",
+        "claim": "I manage six client accounts at Northlight Agency with a combined spend of nine hundred thousand pounds.",
+        "gap": "Were any of those accounts enterprise-sized, and were you the person accountable for the renewal?"
+      },
+      {
+        "requirement": "Negotiates six-figure renewals",
+        "need": "Someone who negotiates renewal terms with a customer's procurement team",
+        "evidence": "brought two clients back from cancellation",
+        "strength": "partial",
+        "source": "Account Manager at Northlight Agency",
+        "claim": "I have held two accounts through a campaign that went badly enough that both were close to leaving.",
+        "gap": ""
+      },
+      {
+        "requirement": "Builds account plans with customers",
+        "need": "Someone who writes an account plan with the customer rather than for the customer",
+        "evidence": "",
+        "strength": "none",
+        "source": "",
+        "claim": "",
+        "gap": ""
+      },
+      {
+        "requirement": "Reports forecast accuracy to leadership",
+        "need": "Someone whose forecast the sales leadership can plan against",
+        "evidence": "runs the monthly review calls and reports on performance",
+        "strength": "partial",
+        "source": "Account Manager at Northlight Agency",
+        "claim": "I run the monthly review call for each of my six accounts, and performance reporting is mine.",
+        "gap": ""
+      }
+    ],
+    "whyThisRole": []
+  },
+  "missing-info:draft": {
+    "paragraphs": [
+      "I am applying for the Enterprise Account Manager role in Leeds. I am an account manager at Northlight Agency, where I run six accounts and about nine hundred thousand pounds of client spend, and I want to be straight about the one requirement I cannot yet claim.",
+      "You are looking for someone who has personally owned enterprise accounts. I have not. My six accounts are agency clients rather than software customers, they are mid-sized rather than enterprise, and I have led the relationship in each case without being accountable for a licence renewal. What I have done is hold two of them after a campaign went badly: I ran the recovery conversations with both, and both are still with the agency.",
+      "What I can put next to that is the rest of the role. I run the monthly review call for each account and report performance in those calls, so the reporting rhythm is one I already keep. I have been in the room for the conversation about whether a client stays, twice, and I would rather argue my case in that room than anywhere else in this job.",
+      "I am in Leeds and the hybrid pattern suits me. I would be glad to talk about what the enterprise accounts actually look like, because whether my experience is close enough is a judgement you can make in ten minutes, and I would rather you make it before an interview than after one. If the answer is that it is not close enough, I would rather know that now as well."
+    ]
+  },
+  "missing-info:critique": {
+    "findings": [
+      {
+        "code": "MISSING_INFORMATION",
+        "paragraph": 1,
+        "passage": "I want to be straight about the one requirement I cannot yet claim",
+        "problem": "The central requirement is unanswered, and only the candidate can say whether any of her accounts were enterprise-sized and whether she was accountable for the renewal. The letter is honest without that fact, but it cannot make the case it was written to make.",
+        "fix": "Ask the candidate directly before this goes any further. Do not soften the gap or infer an answer from the account values.",
+        "severity": "should-fix"
+      },
+      {
+        "code": "WEAK_EMPLOYER_CONNECTION",
+        "paragraph": 0,
+        "passage": "I am applying for the Enterprise Account Manager role in Leeds",
+        "problem": "The letter addresses the requirement honestly but says nothing about why this employer, beyond the location.",
+        "fix": "If the candidate knows anything about the product or the customers, it belongs here. If not, leave it: invented employer knowledge would be worse than thin coverage.",
+        "severity": "should-fix"
+      }
+    ],
+    "keep": [
+      "Paragraph 2 states the gap in the candidate's own words instead of implying cover for it.",
+      "Paragraph 3 answers the remaining requirements with what actually exists."
+    ],
+    "summary": "The letter does not invent anything, which is the right call, but the requirement the ad calls essential is unproven and nothing in the candidate material can settle it. The candidate has to be asked."
+  },
+  "missing-info:ground": {
+    "paragraphs": [
+      {
+        "sources": [
+          { "claim": "manages six client accounts, £900k combined spend", "source": "Account Manager at Northlight Agency" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "brought two clients back from cancellation", "source": "Account Manager at Northlight Agency" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": ["personally owned enterprise accounts"],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [
+          { "claim": "runs the monthly review calls and reports on performance", "source": "Account Manager at Northlight Agency" }
+        ],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [],
+        "rules": []
+      },
+      {
+        "sources": [],
+        "unsupported": [],
+        "misattributed": [],
+        "echoes": [],
+        "scope": [],
+        "employer": [],
+        "pivot": [],
+        "unresolved": [],
+        "needsInput": [
+          "Were any of your accounts enterprise-sized, and were you the person accountable for the renewal?"
+        ],
+        "rules": []
+      }
+    ]
+  }
+}
