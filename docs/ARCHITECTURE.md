@@ -34,10 +34,13 @@ detected rather than used.
 
 **Draft** (`LETTER_SYSTEM` + `draftPrompt`). Writes the letter, with the evidence map
 in front of it. The map is fenced and ends with the rules that matter: write only the
-claims listed here, do not upgrade transferable to demonstrated, do not use a gap,
-and leave out requirements with no evidence rather than implying them. *Must not:*
-invent motivation from the ad — a reason for applying may come only from the
-candidate's own note.
+claims listed here, do not upgrade transferable to demonstrated, do not present a gap
+as though it were evidence, and leave out requirements with no evidence rather than
+implying them. Where evidence is transferable and does not reach the requirement, the
+writer is told to name the requirement and say plainly what is not covered before
+offering the adjacent evidence — the MIT move, and the sentence the validator reports
+as a gap statement rather than charging as an echo. *Must not:* invent motivation from
+the ad — a reason for applying may come only from the candidate's own note.
 
 **Validate** (`GROUNDING_SYSTEM` + `groundingPrompt`). Traces every claim back to the
 candidate's material and reports per paragraph: the sources each paragraph actually
@@ -45,6 +48,14 @@ uses, unsupported fragments, facts attached to the wrong employer, phrases echoi
 the ad, claims larger than their source, sentences that only describe the employer,
 pivots, paragraphs that do not finish, rule breaches, and questions only the user can
 answer. It reports; it never rewrites.
+
+One report is deliberately split in two. A phrase taken from the ad to imply evidence
+is an echo. A phrase that names what the ad asks for *in order to admit the candidate
+cannot meet it* — the transferable-skills move, and the honest alternative to implying
+cover — is not an echo and not an unsupported claim; it is reported on its own as a
+gap statement, which is why the validator, the reviewer's taxonomy and the flag model
+all carry it separately. Neither the validator nor the reviewer may propose removing
+an admission of a gap, and only a fact the candidate supplies can change it.
 
 **Review** (`CRITIC_SYSTEM` + `critiquePrompt` in `src/lib/coverLetterCritic.ts`).
 The independent, adversarial read of the finished draft, run on its own instructions:
@@ -75,15 +86,20 @@ forces *needs another pass*; then unanswered questions force *your input needed*
 then editing items, a must-fix finding, length, paragraph shape and resume overlap
 force *worth a small edit*; only silence from every check earns *ready to send*.
 
-Two things are deliberately asymmetric. **Blocking** items cannot be acknowledged
+Three things are deliberately asymmetric. **Blocking** items cannot be acknowledged
 away: `unsupported` and `misattributed` flags, and findings coded
 `UNSUPPORTED_CLAIM`, `MISATTRIBUTED_FACT`, `OVERCLAIMING`, `INSUFFICIENT_EVIDENCE`,
 `POOR_EVIDENCE_SELECTION`, `POOR_JOB_ALIGNMENT`, `GENERICITY` or
-`RESUME_DUPLICATION`. And a **must-fix** finding, whatever its code, holds the letter
-back and cannot be set aside — it is the item the repair stage is told to apply
-first. Should-fix findings can be set aside one at a time, keyed by the finding's
-own signature, and are then reported as a note rather than a reason. The verdict is
-meant to improve as the user works; the gate never claims a letter is *good*.
+`RESUME_DUPLICATION`. A **must-fix** finding holds the letter back and cannot be set
+aside — it is the item the repair stage is told to apply first. Should-fix findings
+can be set aside one at a time, keyed by the finding's own signature, and are then
+reported as a note rather than a reason. And **informational** codes — `GAP_STATEMENT`
+from a finding, `gapStatement` from a flag — are reported in the notes and are never
+part of a reason, at either severity: a sentence that names a requirement in order to
+admit the candidate cannot meet it is the honest alternative to implying cover for it,
+and the only thing that would change it is a fact the candidate does not have. The
+verdict is meant to improve as the user works; the gate never claims a letter is
+*good*.
 
 **User control.** The candidate owns the application. Flag decisions (approve or
 dismiss, with stable signatures) are respected by the gate, the writer and the
@@ -94,12 +110,15 @@ stops being asked.
 
 ## The failure taxonomy
 
-26 codes in `FAILURE_CODES`, shared by the reviewer and the gate so that the same
+27 codes in `FAILURE_CODES`, shared by the reviewer and the gate so that the same
 word means the same thing in the report, in the UI and in the corpus. The codes are
 grouped by what they cost in the harness: a claim nobody can defend (3), the case not
 being made (2 for the evidence, relevance and genericity family, 1.5 for resume
-duplication), craft (1), repetition and formatting (0.5), and `MISSING_INFORMATION`
-(0), which is not a defect in the letter but a question for the candidate.
+duplication), craft (1), repetition and formatting (0.5), and two at zero —
+`MISSING_INFORMATION`, which is not a defect in the letter but a question for the
+candidate, and `GAP_STATEMENT`, which is the honest version of a gap rather than a
+fault. `tests/evalInstrument.test.ts` holds the table to that promise: every code but
+those two must move the number.
 
 ## The measurement harness
 
@@ -112,10 +131,18 @@ establishes).
 The problem being measured is variance, so the harness reports a distribution — mean,
 worst, best, spread — and every mode is measured the same way: the letter is
 validated, put to the gate, and scored on measurable signals (ad echo, resume echo,
-genericity, repetition, length, requirement coverage) plus everything the validator
-and the reviewer reported. The penalty is a proxy, not a quality score: lower is
-better, and its *spread* is the number to watch. The weights live in one table so
-they can be argued with.
+genericity, repetition, length) plus everything the validator and the reviewer
+reported. The penalty is a proxy, not a quality score: lower is better, and its
+*spread* is the number to watch. The weights live in one table so they can be argued
+with.
+
+**Plan coverage** (`planCoverage`) is reported separately, because it can only be
+measured where a plan exists. It counts the plan entries the letter's claims were
+traced back to by the validator — the background lines, not the wording — so a letter
+that echoes the advertisement earns nothing for it and a letter that borrows the
+employer's terminology to describe real evidence is not punished for agreeing with
+the ad. This replaced a measure that counted the employer's vocabulary, under which
+the advertisement itself scored 100%.
 
 ```
 npm run eval                                  # legacy vs pipeline, live

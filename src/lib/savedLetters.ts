@@ -190,6 +190,7 @@ const STRING_FLAGS = [
   'unsupported',
   'misattributed',
   'echoes',
+  'gapStatement',
   'repetition',
   'scope',
   'employer',

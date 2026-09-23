@@ -188,6 +188,11 @@ describe('the planning stage', () => {
     expect(block).toContain('Evidence: none.');
     expect(block).toContain('Transferable evidence must be written as transferable');
     expect(block).toContain('Leave these out of the letter rather than implying them.');
+    // A gap is not there to be used as evidence, but naming one where the transfer
+    // does not reach is the honest move rather than a fault, so the map says so
+    // instead of forbidding it outright.
+    expect(block).toContain('do not present a gap as though it were evidence');
+    expect(block).toContain('say plainly what the candidate does not have');
   });
 
   it('cannot have its fence closed by its own content', () => {
@@ -398,6 +403,46 @@ describe('the quality gate', () => {
     expect(gate.verdict).toBe('minor');
     expect(gate.failures.REPETITION).toBe(1);
     expect(gate.failures.FORMULAIC_STRUCTURE).toBe(1);
+  });
+
+  /**
+   * The move MIT recommends for a candidate whose experience does not map onto the
+   * target field: name the requirement, then say plainly that it is not covered,
+   * and offer the transferable evidence. It borrows the ad's wording to be honest
+   * about a gap, which is the opposite of borrowing it to imply evidence — so it is
+   * reported and weighed, never held against the letter.
+   */
+  it('reports a named gap as a note, not a reason to withhold the verdict', () => {
+    const paragraphs = sound();
+    paragraphs[2] = {
+      ...paragraphs[2],
+      gapStatement: ['You are looking for someone who has owned enterprise accounts. I have not.'],
+    };
+    const gate = qualityGate({ paragraphs, minWords: 1, maxWords: 2000 });
+    expect(gate.verdict).toBe('pass');
+    expect(gate.reasons).toEqual([]);
+    expect(gate.notes.join(' ')).toContain('Gap admitted rather than hidden');
+    // Reported, so the user can see what the letter is being honest about.
+    expect(gate.failures.GAP_STATEMENT).toBe(1);
+  });
+
+  it('treats a gap the reviewer names the same way, at either severity', () => {
+    const finding = (severity: 'must-fix' | 'should-fix') => ({
+      code: 'GAP_STATEMENT',
+      paragraph: 3,
+      passage: 'I have not owned enterprise accounts',
+      problem: 'the requirement is named and the gap admitted',
+      fix: 'nothing: this is the honest version',
+      severity,
+    });
+    for (const severity of ['should-fix', 'must-fix'] as const) {
+      const critique = parseCritique({ findings: [finding(severity)] })!;
+      expect(critique.findings[0].severity).toBe(severity);
+      const gate = qualityGate({ paragraphs: sound(), critique, minWords: 1, maxWords: 2000 });
+      expect(gate.verdict).toBe('pass');
+      expect(gate.reasons).toEqual([]);
+      expect(gate.notes.join(' ')).toContain('Gap admitted rather than hidden');
+    }
   });
 
   /**

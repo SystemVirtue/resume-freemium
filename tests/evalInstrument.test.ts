@@ -15,7 +15,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CORPUS, type CorpusCase } from './corpus/cases';
-import { measure, coverage, GENERIC, type Sample } from '../scripts/eval-corpus';
+import { measure, planCoverage, GENERIC, type Sample } from '../scripts/eval-corpus';
+import type { EvidenceMap } from '@/lib/coverLetterPlan';
 import { corpusById } from './corpus/cases';
 import { qualityGate } from '@/lib/coverLetterGate';
 import { FAILURE_CODES, type Critique, type FailureCode } from '@/lib/coverLetterCritic';
@@ -155,13 +156,72 @@ describe('the eval yardstick', () => {
     expect(clean.lengthOk).toBe(true);
   });
 
-  it('knows that requirement coverage rewards borrowing the ad’s words', () => {
-    // The bias is real and deliberate to document: coverage counts the employer's
-    // vocabulary, so the ad itself scores a perfect 100% and a letter written in
-    // the candidate's own words scores lower. It is only meaningful next to the
-    // ad-echo number, and the harness comment says so.
-    expect(coverage(corpusCase.job, corpusCase.requirements)).toBe(1);
-    expect(coverage(TAILORED, corpusCase.requirements)).toBeLessThan(1);
+  /**
+   * The old coverage measure counted the employer's vocabulary, so the advertisement
+   * scored 100% and the letter was rewarded for the wording the echo check penalises:
+   * the two numbers pulled against each other. Comparing the letter's words with the
+   * plan's does not help either, because the evidence for a relevant requirement is
+   * bound to share vocabulary with the ad. So plan coverage counts the validator's
+   * trace instead — the background lines each claim was found to rest on — and an
+   * echo produces no trace at all.
+   */
+  it('measures the plan\u2019s evidence through the trace, not the wording', () => {
+    const map: EvidenceMap = {
+      purpose: 'Own the reconciliation service.',
+      seniority: 'senior',
+      priorities: [],
+      terminology: [],
+      whyThisRole: [],
+      entries: [
+        {
+          requirement: 'Designs and builds backend services end to end',
+          need: '',
+          evidence: 'owns the reconciliation service, writes the schema migrations',
+          strength: 'strong',
+          source: 'Ledgerly',
+          claim:
+            'I own the reconciliation service, from its schema through to what happens when it goes wrong.',
+          gap: '',
+        },
+        {
+          requirement: 'Stays on call to keep production reliable',
+          need: '',
+          evidence: '',
+          strength: 'none',
+          source: '',
+          claim: '',
+          gap: 'Do you carry the pager?',
+        },
+      ],
+    };
+
+    // The validator traced the letter's claims back to that evidence.
+    const traced = [
+      {
+        claim: 'I own the reconciliation service and write its schema migrations',
+        source: 'owns the reconciliation service, writes the schema migrations',
+      },
+      { claim: 'I designed the settlement schema', source: 'writes the schema migrations' },
+    ];
+    // Requirements the plan found no evidence for are not scored at all: leaving them
+    // out is the correct behaviour, so covering them would be the fault, not the goal.
+    expect(planCoverage(map, traced)).toBe(1);
+
+    // A trace that came from the advertisement instead of the candidate's material.
+    const echoed = [
+      {
+        claim: 'We run a service that processes reconciliation for 200 retail brands',
+        source: 'Senior Backend Engineer — payments platform, hybrid in Manchester',
+      },
+    ];
+    expect(planCoverage(map, echoed)).toBe(0);
+
+    // A letter that used unrelated material draws on nothing the plan selected.
+    expect(planCoverage(map, [{ claim: 'I taught maths for eight years', source: 'St Aiden\u2019s Academy' }])).toBe(0);
+
+    // Nothing traced at all, and nothing to measure without a plan.
+    expect(planCoverage(map, [])).toBe(0);
+    expect(planCoverage(null, traced)).toBeNull();
   });
 
   it('orders the failure categories, one finding for one finding', () => {
@@ -176,14 +236,19 @@ describe('the eval yardstick', () => {
 
     // Every category in the taxonomy costs something, so a finding can never be
     // reported and then ignored by the number the report is built on.
+    const free: FailureCode[] = ['MISSING_INFORMATION', 'GAP_STATEMENT'];
     for (const code of FAILURE_CODES) {
-      if (code === 'MISSING_INFORMATION') continue;
+      if (free.includes(code)) continue;
       expect(on({ [code]: 1 }), `${code} should cost something`).toBeGreaterThan(clean);
     }
 
-    // Except the one that is not a defect: a question the candidate has to
-    // answer is reported on its own line, not charged to the letter.
+    // Except the two that are not defects. A question only the candidate can answer
+    // is reported on its own line, not charged to the letter. A requirement named in
+    // order to admit a gap is the honest alternative to implying cover for it, and it
+    // is exactly what the old ad-echo measure punished: charging for it here would
+    // rebuild the tension this code was introduced to remove.
     expect(on({ MISSING_INFORMATION: 1 })).toBe(clean);
+    expect(on({ GAP_STATEMENT: 1 })).toBe(clean);
   });
 });
 

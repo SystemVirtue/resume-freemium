@@ -190,6 +190,12 @@ describe('letter context', () => {
     expect(prompt).toContain('Check attribution, not just existence');
     expect(prompt).toContain('At most two across the whole letter');
   });
+
+  it('asks the validator to report a named gap apart from an echo', () => {
+    const prompt = groundingPrompt(makeCtx(CORPUS[0]), ['A paragraph.']);
+    expect(prompt).toContain('"gapStatement"');
+    expect(prompt).toContain('reporting it as an echo is a mistake');
+  });
 });
 
 describe('post-generation passes', () => {
@@ -259,6 +265,15 @@ describe('flags and decisions', () => {
     expect(new Set(kinds).size).toBe(kinds.length);
     expect(kinds[0]).toBe('unsupported');
     expect(kinds[kinds.length - 1]).toBe('repetition');
+  });
+
+  it('keeps a named gap apart from an ad echo', () => {
+    const gap = 'You are looking for someone who has owned enterprise accounts. I have not.';
+    const bare = { id: 'p1', text: 'I led the account work.', locked: false };
+    expect(buildFlags({ ...bare, echoes: [gap] }).map((f) => f.kind)).toEqual(['echo']);
+    const gapFlag = buildFlags({ ...bare, gapStatement: [gap] });
+    expect(gapFlag.map((f) => f.kind)).toEqual(['gapStatement']);
+    expect(gapFlag[0].id).toBe(flagSignature('gapStatement', gap));
   });
 
   it('keeps a signature stable across case and punctuation', () => {

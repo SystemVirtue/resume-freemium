@@ -74,7 +74,18 @@ export const FLAG_FAILURE_CODES: Record<FlagKind, FailureCode> = {
   unresolved: 'UNRESOLVED_ENDING',
   needsInput: 'MISSING_INFORMATION',
   repetition: 'REPETITION',
+  gapStatement: 'GAP_STATEMENT',
 };
+
+/**
+ * Kinds that are reported and never held against the letter. Naming a requirement
+ * in order to admit a gap is the honest alternative to implying cover for it, so it
+ * cannot be a reason to withhold a verdict.
+ */
+export const INFORMATIONAL_FLAG_KINDS: FlagKind[] = ['gapStatement'];
+
+/** The same idea as INFORMATIONAL_FLAG_KINDS, for findings the reviewer raised. */
+export const INFORMATIONAL_CODES: FailureCode[] = ['GAP_STATEMENT'];
 
 /**
  * Flags that stop the letter being called final on their own. These are the two
@@ -183,6 +194,15 @@ export function failureTaxonomy(input: {
 const codeList = (codes: FailureCode[]) => codes.map((c) => FAILURE_LABELS[c]).join(', ');
 
 /**
+ * Review findings that are asking for a change. Informational codes are never among
+ * them, however the reviewer labelled them: a named requirement with the gap admitted
+ * has nothing to change, since the only thing that would change it is a fact the
+ * candidate does not have. It is reported in the notes instead.
+ */
+const actionableFindings = (critique: Critique | null | undefined) =>
+  mustFixFindings(critique || null).filter((f) => !INFORMATIONAL_CODES.includes(f.code));
+
+/**
  * Decide where the letter stands. Order matters: a letter that needs another
  * pass needs one whatever else is outstanding, and a missing fact is only worth
  * asking about once the letter is otherwise sound.
@@ -202,6 +222,20 @@ export function qualityGate(input: GateInput): GateResult {
 
   const notes: string[] = [];
 
+  // Reported whichever way the verdict goes, because it is information rather than
+  // a fault: the user should see it while deciding, not after being told off.
+  const gapStatements = [
+    ...active
+      .filter((f) => INFORMATIONAL_FLAG_KINDS.includes(f.kind))
+      .map((f) => f.fragment || f.detail),
+    ...(input.critique?.findings || [])
+      .filter((f) => INFORMATIONAL_CODES.includes(f.code))
+      .map((f) => f.passage || f.problem),
+  ].filter(Boolean);
+  if (gapStatements.length) {
+    notes.push(`Gap admitted rather than hidden: ${gapStatements.slice(0, 4).join('; ')}.`);
+  }
+
   if (!paragraphs.length) {
     return {
       verdict: 'regenerate',
@@ -216,7 +250,7 @@ export function qualityGate(input: GateInput): GateResult {
   // 1. Anything the validator or the reviewer says cannot be defended.
   const blockingFlags = active.filter((f) => BLOCKING_FLAGS.includes(f.kind));
   const blockingCodes = blockingFlags.map((f) => FLAG_FAILURE_CODES[f.kind]);
-  const blockingFindings = mustFixFindings(input.critique || null);
+  const blockingFindings = actionableFindings(input.critique);
   if (blockingFlags.length) {
     reasons.push(
       `The validator says some words are not supported by your background: ${blockingFlags
@@ -257,7 +291,9 @@ export function qualityGate(input: GateInput): GateResult {
   // cannot be disagreed with is not a second opinion. Nothing unsupported can be
   // waved through this way — the blocking categories were decided above from the
   // flags and the codes, before this point is reached.
-  const otherFlags = active.filter((f) => !BLOCKING_FLAGS.includes(f.kind));
+  const otherFlags = active.filter(
+    (f) => !BLOCKING_FLAGS.includes(f.kind) && !INFORMATIONAL_FLAG_KINDS.includes(f.kind),
+  );
   if (otherFlags.length) {
     const codes = Array.from(new Set(otherFlags.map((f) => FLAG_FAILURE_CODES[f.kind])));
     reasons.push(`${codeList(codes)}: ${otherFlags.map((f) => f.fragment || f.detail).slice(0, 4).join('; ')}.`);
@@ -265,8 +301,10 @@ export function qualityGate(input: GateInput): GateResult {
   // A must-fix item with a non-blocking code is the reviewer's own severity call:
   // it is saying change this. Calling the letter ready while one stands would make
   // the label mean nothing, and it is the item the repair stage is told to apply
-  // first. Only should-fix findings can be set aside.
-  const mustFixOther = mustFixFindings(input.critique || null).filter((f) => !isBlockingCode(f.code));
+  // first. Only should-fix findings can be set aside — and a gap statement is never
+  // one of these, however the reviewer labelled it, because there is nothing to
+  // change: the honest sentence is the point.
+  const mustFixOther = actionableFindings(input.critique).filter((f) => !isBlockingCode(f.code));
   if (mustFixOther.length) {
     reasons.push(
       `The review says these must be fixed: ${codeList(
@@ -276,7 +314,9 @@ export function qualityGate(input: GateInput): GateResult {
   }
 
   const acknowledged = new Set(input.acknowledgedFindings || []);
-  const otherFindings = (input.critique?.findings || []).filter((f) => f.severity === 'should-fix');
+  const otherFindings = (input.critique?.findings || []).filter(
+    (f) => f.severity === 'should-fix' && !INFORMATIONAL_CODES.includes(f.code),
+  );
   const outstanding = otherFindings.filter((f) => !acknowledged.has(findingSignature(f)));
   const settled = otherFindings.filter((f) => acknowledged.has(findingSignature(f)));
   if (outstanding.length) {

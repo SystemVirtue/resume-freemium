@@ -120,15 +120,22 @@ report variance.
 
 | | Legacy prompt | Staged pipeline |
 |---|---|---|
-| Penalty (mean / min / max / sd) | 16.12 / 15.46 / 17.24 / 0.68 | 4.31 / 3.07 / 5.12 / 0.83 |
+| Penalty (mean / min / max / sd) | 16.12 / 15.46 / 17.24 / 0.68 | 4.06 / 3.04 / 5.12 / 1.00 |
 | Unsupported claims per letter | 2.5 | 0 |
 | Genericity clichés per letter | 1.5 | 0 |
+| Ad echo | 0.2% | 0.0% |
 | Resume echo | 3.5% | 0.6% |
+| Plan evidence drawn on | n/a — no plan in this mode | 100% |
 | Gate verdicts | 100% needs another pass | 50% small edit, 50% your input needed |
-| Failure categories | `UNSUPPORTED_CLAIM×10 AD_ECHO×5 OVERCLAIMING×1` | `WEAK_ROLE_CONNECTION×2 WEAK_EMPLOYER_CONNECTION×2 MISSING_INFORMATION×2 REPETITION×1 WEAK_CLOSING×1 AD_ECHO×1` |
+| Failure categories | `UNSUPPORTED_CLAIM×10 AD_ECHO×5 OVERCLAIMING×1` | `WEAK_ROLE_CONNECTION×2 WEAK_EMPLOYER_CONNECTION×2 MISSING_INFORMATION×2 REPETITION×1 WEAK_CLOSING×1 GAP_STATEMENT×1` |
 
 All letters on both sides were inside the length band, so the gap is not a length
-artefact. The behaviour that matters most is the `missing-info` case: the legacy
+artefact. Plan coverage reads 100% on the pipeline side, which is the ceiling and
+should be read as such: four letters, one author, each written from its own plan.
+What it establishes is narrower and is held by the instrument tests — the measure no
+longer counts the employer's vocabulary, an ad echo draws on nothing, and the single
+honest gap statement that used to be charged as ad echo is now reported as
+`GAP_STATEMENT` at zero cost, with the gate carrying it as a note. The behaviour that matters most is the `missing-info` case: the legacy
 answer claimed a track record of owning enterprise accounts that the CV never
 establishes; the pipeline left it unanswered, said so, and ended asking the
 candidate instead of guessing.
@@ -141,25 +148,43 @@ charged for; and the direct-run guard made `npm run eval` exit silently having d
 nothing. A consequence to remember: **penalties are not comparable across harness
 versions.** Older runs are not a baseline for these numbers.
 
+## Resolved in the follow-up pass
+
+Both metrics that pulled against each other in the sample run were fixed together,
+because fixing either alone would have rebuilt the tension:
+
+- **A named requirement with the gap admitted has its own code.** `GAP_STATEMENT`,
+  end to end: the validator reports it as its own field, the reviewer's taxonomy
+  carries it, the crafter gives it a flag kind, and the gate reports it as a note.
+  It is explicitly zero-weighted, and the gate keeps it out of every path that can
+  withhold a verdict or hold a letter at "worth a small edit", at either severity.
+  Naming a gap is now the honest option rather than a charged one, and the draft
+  instructions were corrected to match: the evidence map no longer says "do not use a
+  gap" — it says not to present a gap as though it were evidence, and tells the writer
+  to name a central requirement the transfer does not reach and say plainly what is not
+  covered before offering the adjacent evidence.
+- **Coverage is measured from the plan, through the validator's trace.**
+  `planCoverage` counts the plan entries the letter's claims were traced back to,
+  so echoing the ad earns nothing and borrowing the employer's terminology to
+  describe real evidence is no longer punished. The old measure is gone.
+
+Penalty and failure-category numbers above are from the same harness version; as
+always, do not compare them with runs made before it.
+
 ## Known issues, deliberately not resolved here
 
-1. **The echo rule charges the move MIT recommends.** Naming a requirement in order
-   to admit a gap — the transferable-skills pattern the brief asks for — is flagged
-   as ad echo. It needs its own code, distinct from borrowed marketing language.
-2. **Requirement coverage rewards borrowing the employer's words.** The ad itself
-   scores 100%, and a letter written in the candidate's own words scores lower. The
-   bias is pinned in a test rather than hidden; the fix is to measure coverage from
-   the plan (which requirements the letter's evidence actually draws on) instead of
-   from ad vocabulary.
-3. **The whole-letter 5-gram ad echo barely moves** (0.2 against 0.0): it only fires
+1. **The whole-letter 5-gram ad echo barely moves** (0.2 against 0.0): it only fires
    on wholesale copying. The per-paragraph validator flags are the useful signal.
-4. **The repetition heuristic does not discriminate at letter length** (4.0 against
+2. **The repetition heuristic does not discriminate at letter length** (4.0 against
    3.75 flags per letter on both sides).
-5. **Variance is still unmeasured.** Only repeated live runs with a key can produce
+3. **Variance is still unmeasured.** Only repeated live runs with a key can produce
    a spread, and that is the number the whole exercise is about.
-6. **The pass verdict is now reachable, and worth watching.** Whether users set
+4. **The pass verdict is now reachable, and worth watching.** Whether users set
    aside findings they should have fixed is a question the flag decisions in the
    app can eventually answer.
+5. **Plan coverage is a live-mode measure only.** A single-call letter has no plan
+   to be measured against, so the legacy column reads `n/a`; there is no way to
+   score the two modes on it side by side.
 
 ## Traceability
 
@@ -169,7 +194,7 @@ versions.** Older runs are not a baseline for these numbers.
 | Phase 2 — baseline | `scripts/eval-corpus.ts` legacy mode, reading the pre-v2 prompt from git | `EVAL_MODE=legacy` |
 | Phase 3 — evidence architecture | `coverLetterPlan.ts` (`EvidenceMap`, strengths that only downgrade) | `tests/coverLetterPipeline.test.ts` |
 | Phase 4 — job analysis | `planPrompt`: purpose, seniority, priorities, terminology | same |
-| Phase 5 — matching | evidence entries and `mapCoverage` | same |
+| Phase 5 — matching | evidence entries and `planCoverage` in the harness | same, `tests/evalInstrument.test.ts` |
 | Phase 6 — generation | `draftPrompt` carrying the evidence map on every call | `the plan travelling with the letter` |
 | Phase 7 — critic | `coverLetterCritic.ts`, `CRITIC_SYSTEM`, the taxonomy | `the critic` |
 | Phase 8 — revision | `critiqueInstructions` into `promptWithInstruction`; one automatic repair | crafter `generate()`; harness `repair` |
@@ -180,7 +205,7 @@ versions.** Older runs are not a baseline for these numbers.
 | §34 ask, don't guess | `mapQuestions` → open questions → `needs-input` | pipeline tests, `missing-info` case |
 | §35 confidence gating | four verdicts, no scores | `the quality gate` |
 | §37 formatting | `letterPdf.ts`: one A4 page, real extractable text, valid EOF | `tests/letterPdf.test.ts` |
-| §45 failure taxonomy | 26 codes, weighted in the harness | pipeline tests, instrument tests |
+| §45 failure taxonomy | 27 codes, weighted in the harness | pipeline tests, instrument tests |
 | §47 stage separation | five systems: requirements, plan, letter, critic, grounding | `the brief's stage separation holds end to end` |
 | §49 user approval | flag decisions, set-aside findings, plan card, questions | `tests/savedLetters.test.ts`, gate tolerance tests |
 

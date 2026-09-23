@@ -37,7 +37,8 @@ export type FlagKind =
   | 'employer'
   | 'pivot'
   | 'unresolved'
-  | 'needsInput';
+  | 'needsInput'
+  | 'gapStatement';
 
 export type FlagDecision = 'approved' | 'dismissed';
 
@@ -117,6 +118,14 @@ export const FLAG_KINDS: FlagKindMeta[] = [
     tone: 'primary',
   },
   {
+    kind: 'gapStatement',
+    label: 'Requirement named, gap admitted',
+    hint: 'You named something the role asks for and said plainly that you cannot claim it. That is honest, and it is not a fault — but only a fact you have can change it.',
+    // Reported, and sorted below every real problem: information, not a warning.
+    priority: 25,
+    tone: 'primary',
+  },
+  {
     kind: 'repetition',
     label: 'Repetition',
     hint: 'Repeated words, or sentences and paragraphs that open the same way.',
@@ -156,6 +165,12 @@ export interface Paragraph {
   unresolved?: string[];
   /** Questions only the user can answer. Maximum two per draft. */
   needsInput?: string[];
+  /**
+   * A requirement named in order to admit the candidate cannot meet it. Held
+   * apart from echoes on purpose: it borrows the ad's wording to be honest about a
+   * gap, which is the opposite of using that wording to imply evidence.
+   */
+  gapStatement?: string[];
 }
 
 /** A flag as presented to the user, after decisions have been applied. */
@@ -692,15 +707,16 @@ For each paragraph, in order, report:
 - "sources": for each claim the paragraph actually makes, the short background line it rests on (quote 3-8 words each). List only sources this paragraph uses — none for material it does not contain, and never a source for a sentence that merely describes the employer. Where the claim is motivation drawn from a past letter, name that letter as the source. Empty if the paragraph makes no claims.
 - "unsupported": the specific unsupported words or short phrase — a few words, never the whole sentence — for any claim the candidate material does not support. Quote the fragment exactly as it appears. Where the evidence map above marks a requirement as having no evidence, or marks its evidence as transferable, treat any stronger claim as unsupported.
 - "misattributed": any fact credited to the wrong employer, role or period, even though the fact exists somewhere in the background. Check attribution, not just existence. Quote the fragment, then " - belongs to: " and where it actually belongs.
-- "echoes": any phrase of four or more words taken from the job advertisement, including a paraphrase or a light rewording of it, and any reuse of the employer's own marketing language. Requirements restated as prose belong here.
+- "echoes": any phrase of four or more words taken from the job advertisement, including a paraphrase or a light rewording of it, and any reuse of the employer's own marketing language. A requirement restated as prose in order to stand in for evidence belongs here. It does not belong here when the requirement is named in order to admit the candidate cannot meet it — that is a "gapStatement", and reporting it as an echo is a mistake.
 - "scope": any claim bigger than its source, where the words all, every, daily, always, established, originated, led or owned overstate something narrower in the background. Quote the fragment.
 - "employer": any sentence whose content describes the employer's business, brand, mission or values — the objective test is that the sentence would still be true with no candidate attached. Quote the fragment.
 - "pivot": any sentence broken apart and rebuilt around a pivot with scaffolding words added to hold the halves together, where the subject is delayed. Quote the fragment.
 - "unresolved": the last sentence of a paragraph that trails off into filler instead of finishing the point. Quote the fragment.
+- "gapStatement": the exact words of any sentence that names something the advertisement requires and then admits, or plainly implies, that the candidate does not have it. Quote the fragment. This is honest rather than wrong, it is never a fault, and it must not also be reported under "echoes" or "unsupported".
 - "needsInput": questions only the user can answer — something the letter asserts or needs and only they can supply. At most two across the whole letter; prefer the one that matters most. Leave this empty if the letter needs nothing from the user.
 - "rules": any breach of a line in the RULES block visible in this paragraph, as {"rule":"the rule","fragment":"the words that break it"}. Ignore spelling-variant and punctuation rules — those are enforced in code.
 
-Answer as JSON: {"paragraphs":[{"sources":[{"claim":"...","source":"..."}],"unsupported":["..."],"misattributed":["..."],"echoes":["..."],"scope":["..."],"employer":["..."],"pivot":["..."],"unresolved":["..."],"needsInput":["..."],"rules":[{"rule":"...","fragment":"..."}]}]}`;
+Answer as JSON: {"paragraphs":[{"sources":[{"claim":"...","source":"..."}],"unsupported":["..."],"misattributed":["..."],"echoes":["..."],"gapStatement":["..."],"scope":["..."],"employer":["..."],"pivot":["..."],"unresolved":["..."],"needsInput":["..."],"rules":[{"rule":"...","fragment":"..."}]}]}`;
 }
 
 export function parseResumePrompt(text: string): string {
@@ -1049,6 +1065,7 @@ export function buildFlags(p: Paragraph): Flag[] {
   add('unsupported', p.unsupported);
   add('misattributed', p.misattributed);
   add('echo', p.echoes);
+  add('gapStatement', p.gapStatement);
   (p.ruleFlags || []).filter((r) => r.rule || r.fragment).forEach((r) => {
     const detail = r.fragment
       ? `Breaks your rule “${r.rule}”: “${r.fragment}”`
@@ -1131,6 +1148,10 @@ export function suggestedRule(kind: FlagKind): string {
       return 'Attribute every fact to the employer or context it actually belongs to.';
     case 'rule':
       return 'Follow my saved rules on every revision.';
+    // Naming a requirement to admit a gap is not a habit to write a rule against,
+    // so there is no standing instruction to offer. The crafter skips an empty line.
+    case 'gapStatement':
+      return '';
     default:
       return 'Keep every claim supported and correctly attributed.';
   }

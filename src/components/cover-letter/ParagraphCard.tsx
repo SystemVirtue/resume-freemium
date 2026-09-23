@@ -12,6 +12,7 @@ import {
   Eye,
   CornerDownRight,
   Flag,
+  Info,
   Lock,
   LockOpen,
   Plus,
@@ -63,6 +64,7 @@ const KIND_ICON: Record<FlagKind, React.ComponentType<{ className?: string }>> =
   unresolved: CornerDownRight,
   scope: TrendingUp,
   needsInput: MessageSquare,
+  gapStatement: Info,
   repetition: Repeat,
 };
 
@@ -76,6 +78,7 @@ const KIND_COLOR: Record<FlagKind, string> = {
   unresolved: 'text-amber-700 dark:text-amber-400',
   scope: 'text-muted-foreground',
   needsInput: 'text-primary',
+  gapStatement: 'text-primary',
   repetition: 'text-muted-foreground',
 };
 
@@ -89,6 +92,7 @@ const KIND_BORDER: Record<FlagKind, string> = {
   unresolved: 'border-amber-500/40',
   scope: 'border-border',
   needsInput: 'border-primary/40',
+  gapStatement: 'border-primary/40',
   repetition: 'border-border',
 };
 

@@ -285,7 +285,7 @@ export function evidenceMapBlock(map: EvidenceMap): string {
   });
 
   const notes: string[] = [
-    'Write only the claims listed here. Do not upgrade "transferable" to "demonstrated", do not use a gap, and do not add evidence that is not on this map.',
+    'Write only the claims listed here. Do not upgrade "transferable" to "demonstrated", do not present a gap as though it were evidence, and do not add evidence that is not on this map.',
   ];
   if (uncovered.length) {
     notes.push(
@@ -296,7 +296,9 @@ export function evidenceMapBlock(map: EvidenceMap): string {
     );
   }
   if (covered.some((e) => e.strength === 'partial')) {
-    notes.push('Transferable evidence must be written as transferable, with the link to the requirement made explicit.');
+    notes.push(
+      'Transferable evidence must be written as transferable, with the link to the requirement made explicit. Where a requirement is central and the transfer does not reach it, name the requirement and say plainly what the candidate does not have, then give the adjacent evidence. An admitted gap is reported rather than charged; implying cover for it is neither honest nor needed.',
+    );
   }
 
   return `<<< EVIDENCE MAP (BUILT BEFORE WRITING: WHAT THE EMPLOYER NEEDS, AND WHAT THE CANDIDATE ACTUALLY HAS) >>>\n${lines

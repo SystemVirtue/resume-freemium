@@ -233,7 +233,8 @@ export interface Sample {
   resumeEcho: number;
   generic: number;
   repetition: number;
-  coverage: number;
+  /** Share of the plan's evidenced requirements the letter draws on. null without a plan. */
+  planCover: number | null;
   forbidden: string[];
   failures: Partial<Record<FailureCode, number>>;
   verdict: GateVerdict | null;
@@ -247,22 +248,86 @@ export interface Sample {
 const adEcho = (letter: string, job: string) => ngramOverlap(letter, job, 5);
 
 /**
- * How much of the ad's requirement wording the letter speaks to.
- *
- * This rewards using the employer's words, so it pulls against the echo check:
- * a letter that lifts its phrasing from the ad scores well here and badly on ad
- * echo. Read it beside that number, never on its own.
+ * Words too common to be evidence that a letter drew on one particular piece of
+ * background: every letter contains them, so they prove nothing. Kept short and
+ * deliberately boring rather than clever.
  */
-export function coverage(letter: string, requirements: string[]): number {
-  if (!requirements.length) return 1;
-  const lower = letter.toLowerCase();
-  const covered = requirements.filter((r) => {
-    const content = tokens(r).filter((w) => w.length > 4);
-    if (!content.length) return false;
-    const hits = content.filter((w) => lower.includes(w.slice(0, 5))).length;
-    return hits / content.length >= 0.5;
+const COMMON = new Set([
+  'about', 'after', 'again', 'against', 'along', 'already', 'also', 'although', 'always', 'among',
+  'another', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 'bring', 'came',
+  'could', 'doing', 'during', 'each', 'every', 'first', 'from', 'given', 'have', 'having', 'here',
+  'into', 'itself', 'just', 'keep', 'last', 'later', 'least', 'less', 'like', 'made', 'make', 'many',
+  'might', 'more', 'most', 'much', 'must', 'never', 'next', 'nothing', 'often', 'once', 'only',
+  'other', 'others', 'over', 'rather', 'really', 'role', 'same', 'should', 'since', 'some', 'still',
+  'such', 'take', 'team', 'than', 'that', 'their', 'them', 'then', 'there', 'these', 'they', 'thing',
+  'things', 'this', 'those', 'through', 'thus', 'time', 'under', 'until', 'upon', 'used', 'using',
+  'very', 'want', 'well', 'were', 'what', 'when', 'where', 'which', 'while', 'with', 'within',
+  'without', 'work', 'working', 'would', 'years', 'your',
+]);
+
+/** Five-character stems of the content words in a phrase, deduplicated. */
+export const contentStems = (text: string): Set<string> =>
+  new Set(
+    tokens(text)
+      .filter((w) => w.length >= 5 && !COMMON.has(w))
+      .map((w) => w.slice(0, 5)),
+  );
+
+/** One background line the validator traced a claim back to. */
+export interface TracedSource {
+  claim: string;
+  source: string;
+}
+
+/**
+ * How much of the plan the letter actually draws on.
+ *
+ * This replaces a measure that counted the employer's vocabulary in the letter. That
+ * one scored the advertisement itself at 100%, so the letter was rewarded for using
+ * the wording the echo check penalises: the two numbers pulled against each other
+ * and neither could be read on its own.
+ *
+ * Comparing the letter's words with the plan's instead does not fix it, because a
+ * letter is supposed to rephrase and the evidence for a relevant requirement
+ * naturally shares vocabulary with the ad that made it relevant — measured that way
+ * the advertisement still covered its own requirements.
+ *
+ * So this measures the trace, not the wording: the validator already reports, per
+ * paragraph, which background lines each claim rests on. An entry the plan found
+ * evidence for counts as drawn on when one of those traced lines matches the entry's
+ * evidence. Echoing the ad produces no traced background lines at all, so it earns
+ * nothing here. What it cannot do is distinguish a letter that used the evidence from
+ * one that used the same words by accident; it says the evidence is visible in the
+ * letter, which is what coverage is for.
+ *
+ * Requirements the plan marked as having no evidence are left out of the denominator
+ * on purpose: the letter is supposed to leave those out, so covering them would be
+ * the fault rather than the goal.
+ *
+ * Returns null when there is nothing to judge: no plan (the single-call modes have
+ * none) or no requirement with evidence behind it.
+ */
+export function planCoverage(
+  map: EvidenceMap | null | undefined,
+  traced: TracedSource[],
+): number | null {
+  const entries = (map?.entries || []).filter((e) => e.strength !== 'none' && (e.evidence || e.claim));
+  if (!entries.length) return null;
+  const have = traced.map((t) => contentStems(`${t.claim} ${t.source}`)).filter((s) => s.size);
+  if (!have.length) return 0;
+
+  const drawn = entries.filter((e) => {
+    const wanted = contentStems(`${e.evidence} ${e.source}`);
+    if (!wanted.size) return false;
+    return have.some((line) => {
+      let shared = 0;
+      for (const stem of wanted) if (line.has(stem)) shared++;
+      // Half of the shorter phrase: the two are short descriptions of the same
+      // thing, so a couple of shared words is a coincidence but half of them is not.
+      return shared >= Math.max(2, Math.ceil(Math.min(wanted.size, line.size) * 0.5));
+    });
   }).length;
-  return covered / requirements.length;
+  return drawn / entries.length;
 }
 
 /**
@@ -311,6 +376,10 @@ const FAILURE_WEIGHTS: Partial<Record<FailureCode, number>> = {
   // Not a defect in the letter: a question only the candidate can answer, and
   // reported on its own line as needed-user-input.
   MISSING_INFORMATION: 0,
+  // Also not a defect, and the whole reason it exists as its own code: naming a
+  // requirement in order to admit a gap is the honest alternative to implying cover
+  // for it, and it used to be charged as ad echo at 1.
+  GAP_STATEMENT: 0,
 };
 
 const DEFAULT_FAILURE_WEIGHT = 1;
@@ -343,6 +412,7 @@ function paragraph(text: string, i: number, flags?: any): Paragraph {
     unsupported: g.unsupported,
     misattributed: g.misattributed,
     echoes: g.echoes,
+    gapStatement: g.gapStatement,
     scope: g.scope,
     employer: g.employer,
     pivot: g.pivot,
@@ -382,6 +452,16 @@ async function scoreLetter(input: {
   );
   const ground = json<{ paragraphs: any[] }>(groundRaw);
   const paragraphs = parts.map((text, i) => paragraph(text, i, ground?.paragraphs?.[i]));
+  /** Every background line the validator traced a claim to, across the letter. */
+  const traced: TracedSource[] = (ground?.paragraphs || []).flatMap((p: any) =>
+    (Array.isArray(p?.sources) ? p.sources : [])
+      .map((s: any) =>
+        typeof s === 'string'
+          ? { claim: '', source: s }
+          : { claim: String(s?.claim || ''), source: String(s?.source || '') },
+      )
+      .filter((s: TracedSource) => s.claim || s.source),
+  );
 
   const gate = qualityGate({
     paragraphs,
@@ -401,6 +481,7 @@ async function scoreLetter(input: {
     failures: gate.failures,
     questions: input.questions,
     repaired: input.repaired,
+    planCover: planCoverage(input.ctx.plan, traced),
   });
 }
 
@@ -537,6 +618,8 @@ export function measure(input: {
   failures: Partial<Record<FailureCode, number>>;
   questions: number;
   repaired: boolean;
+  /** Computed from the plan in scoreLetter, so it is null where no plan exists. */
+  planCover?: number | null;
 }): Sample {
   const { letter, c } = input;
   const words = letterWordCount(split(letter).map((t, i) => paragraph(t, i)));
@@ -551,7 +634,7 @@ export function measure(input: {
     resumeEcho: ngramOverlap(letter, c.resume, 5),
     generic: GENERIC.filter((g) => lower.includes(g)).length,
     repetition: flagRepetition(letter).length,
-    coverage: coverage(letter, c.requirements),
+    planCover: input.planCover ?? null,
     forbidden: (c.expectations.forbiddenWords || []).filter((w) => lower.includes(w.toLowerCase())),
     failures: input.failures,
     verdict: input.verdict,
@@ -602,7 +685,18 @@ function summarise(samples: Sample[], label: string) {
   line('unsupported', (s) => s.failures.UNSUPPORTED_CLAIM || 0, 2);
   line('misattributed', (s) => s.failures.MISATTRIBUTED_FACT || 0, 2);
   line('overclaiming', (s) => s.failures.OVERCLAIMING || 0, 2);
-  line('requirement cover', (s) => s.coverage * 100, 0);
+  // Pipeline-only, and labelled as such: the single-call modes have no plan to
+  // measure a letter against, so printing a zero for them would read as a failure.
+  const planValues = ok
+    .map((s) => s.planCover)
+    .filter((v): v is number => typeof v === 'number');
+  console.log(
+    `  ${pad('plan coverage', 20)} ${
+      planValues.length
+        ? fmt(stats(planValues.map((v) => v * 100)), 0)
+        : 'n/a (no plan in this mode)'
+    }`,
+  );
   console.log(
     `  length in band: ${pct(ok.filter((s) => s.lengthOk).length / ok.length)}   ` +
       `forbidden words: ${ok.filter((s) => s.forbidden.length).length}`,
@@ -699,7 +793,7 @@ async function main() {
             resumeEcho: 0,
             generic: 0,
             repetition: 0,
-            coverage: 0,
+            planCover: null,
             forbidden: [],
             failures: {},
             verdict: null,
