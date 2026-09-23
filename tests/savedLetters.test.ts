@@ -56,7 +56,6 @@ const session = () => ({
   instructions: ['make it shorter', 'lead with the depot example'],
   notices: ['Your rules mention US English, but the selector is UK.'],
   wouldTouch: ['Dear hiring manager,'],
-  review: 'One claim needs a number.',
   openQuestions: ['How many depots did you cover?'],
   ruleOffersDismissed: ['employer' as const, 'not-a-kind' as unknown as FlagKind],
 });
@@ -108,7 +107,6 @@ describe('a saved letter round trip', () => {
     expect(restored.instructions).toEqual(original.instructions);
     expect(restored.notices).toEqual(original.notices);
     expect(restored.wouldTouch).toEqual(original.wouldTouch);
-    expect(restored.review).toBe(original.review);
     expect(restored.openQuestions).toEqual(original.openQuestions);
     expect(restored.ruleOffersDismissed).toEqual(['employer']);
   });

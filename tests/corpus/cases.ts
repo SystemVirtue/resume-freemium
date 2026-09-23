@@ -1,8 +1,14 @@
 /**
- * The fixed evaluation corpus. Every change to the prompts or the post-generation
- * passes is run against all ten cases before it ships: a technical role, a creative
- * role, a management role, a career change, a strong fit, a weak fit, a sparse CV,
- * a verbose CV, a thin job ad, and an ad carrying injected instructions.
+ * The fixed evaluation corpus. Every change to the prompts, the planning stage or
+ * the post-generation passes is run against all of these before it ships.
+ *
+ * The first ten are the original set: a technical role, a creative role, a
+ * management role, a career change, a strong fit, a weak fit, a sparse CV, a
+ * verbose CV, a thin job ad, and an ad carrying injected instructions. The rest
+ * widen the range the way the quality brief asks: an executive and a junior
+ * candidate, an employment gap, an explicitly transferable-skills move, a
+ * nonprofit, sales and finance role, and an ad asking for something the CV never
+ * establishes — where the right answer is to ask rather than to guess.
  *
  * The requirements listed for each case are the honest reading of that ad, kept
  * short and plain so they can be asserted for shape as well as used as input.
@@ -18,7 +24,15 @@ export type CorpusKind =
   | 'sparse-cv'
   | 'verbose-cv'
   | 'thin-ad'
-  | 'injected-ad';
+  | 'injected-ad'
+  | 'executive'
+  | 'junior'
+  | 'employment-gap'
+  | 'transferable'
+  | 'nonprofit'
+  | 'sales'
+  | 'finance'
+  | 'missing-info';
 
 export interface CorpusCase {
   id: string;
@@ -40,6 +54,11 @@ export interface CorpusCase {
     maxRequirements?: number;
     /** The ad is too thin to extract genuine requirements from. */
     tooThin?: boolean;
+    /**
+     * The ad asks for something the CV never establishes, so the planner should
+     * raise a question for the user instead of inventing an answer.
+     */
+    expectQuestion?: boolean;
   };
 }
 
@@ -305,6 +324,234 @@ About you: experience leading a complaints team in a regulated environment is es
       minRequirements: 3,
       maxRequirements: 4,
     },
+  },
+  {
+    id: 'executive',
+    label: 'Executive role, long ad',
+    kind: 'executive',
+    resume: `Name: Ingrid Halvorsen
+Email: ingrid.halvorsen@example.com
+Location: Manchester, UK
+Summary: Healthcare operations director, twenty years across community and private provider groups.
+Experience:
+- Operations Director at Northcare Group (2018-present): responsible for 14 clinics and a team of 620. I took on a division losing 4 per cent margin and returned it to 11 per cent over three years. I chair the clinical governance committee, led the integration of two acquired provider groups and their 190 staff, and rebuilt the site manager bench through a structured development programme.
+- Regional Manager at Pennine Health (2013-2018): ran nine clinics, introduced the standard operating model used across the group, and cut agency staffing spend by 22 per cent.
+- Practice Manager at Chorlton Medical (2009-2013): managed a single practice through a CQC inspection and a move to new premises.
+Education:
+- MBA, University of Manchester (2016)
+- BSc Health Sciences, University of Leeds (2008)
+Skills: P&L ownership, multi-site operations, clinical governance, integration, workforce planning, CQC compliance
+Certifications: IOSH Managing Safely`,
+    job: `Chief Operating Officer — private healthcare group, 40 clinics, based in Manchester.
+
+About the role: you will hold operational accountability for the whole estate. You will set the operating model, own the group P&L and the cost recovery programme, and take the clinical quality and safety agenda, working with the medical director and the CQC lead. You will lead the integration of a further three provider groups already in the pipeline, each with its own systems and its own management bench.
+
+What we need from you:
+- Twenty years in healthcare operations, with responsibility for a multi-site estate of comparable size.
+- A demonstrable record of margin recovery in a division or group that had lost ground.
+- Experience of acquiring and integrating provider groups, including their people and their systems.
+- Credibility with clinicians: the ability to chair governance and hold a quality conversation, not only a commercial one.
+- The nerve to make decisions about sites that do not work.
+
+Reporting to the CEO and to the board, you will have six regional directors and a support team of forty. The role is office-based four days a week.`,
+    requirements: [
+      'Runs a multi-site healthcare operation at scale',
+      'Owns the group P&L and margin recovery',
+      'Leads clinical quality and safety governance',
+      'Integrates acquired provider groups',
+    ],
+    expectations: { minRequirements: 3, maxRequirements: 4 },
+  },
+  {
+    id: 'junior',
+    label: 'Junior candidate',
+    kind: 'junior',
+    resume: `Name: Chloe Adeyemi
+Email: chloe.adeyemi@example.com
+Location: Sheffield, UK
+Summary: Marketing graduate, seeking a first agency role.
+Experience:
+- Marketing Intern at Fieldnote Agency (summer 2025): wrote social copy for two clients, scheduled posts, compiled the weekly engagement report.
+- Retail Assistant at Kingsway Books (2022-2025): served customers and ran the shop's Instagram account.
+- Social Secretary, University of Sheffield Marketing Society (2024-2025): ran the society's channels and organised four events for around 80 students.
+Education:
+- BA Marketing and Management, University of Sheffield (2022-2025), 2:1
+Skills: Social media, copywriting, Canva, Excel, basic Google Analytics, Meta Business Suite`,
+    job: `Marketing Assistant — creative agency, Sheffield, full time.
+
+You will support two account managers with day-to-day campaign delivery: writing and scheduling social content, updating client reporting decks, and keeping the campaign calendar in order. You will learn our process for briefing designers and editors, and you will be expected to pick up our tools quickly. Some client contact by email once you know the accounts.
+
+We are looking for someone at the start of their career who can write clearly, take feedback, and keep several small jobs moving at once. No agency experience required.`,
+    requirements: [
+      'Supports campaign delivery for several accounts',
+      'Writes and schedules social content',
+      'Keeps reporting decks and the calendar up to date',
+      'Picks up the agency tools and process quickly',
+    ],
+    expectations: { minRequirements: 3, maxRequirements: 4 },
+  },
+  {
+    id: 'employment-gap',
+    label: 'Employment gap',
+    kind: 'employment-gap',
+    resume: `Name: Rob Fenwick
+Email: rob.fenwick@example.com
+Location: Bristol, UK
+Summary: Customer success manager, eight years in B2B software, returning after a two-year break for family reasons.
+Experience:
+- Customer Support Lead at Loop Retail (2024-present): leads a team of four supporting 300 retail accounts, owns the escalation process, runs the monthly customer feedback review with product.
+- Career break (2022-2024): caring for a parent. Two short freelance support contracts in 2023 for two former clients.
+- Customer Success Manager at Harlow Cloud (2019-2022): owned 45 accounts worth £1.1m in annual renewals, ran quarterly business reviews, and averaged 94 per cent gross retention across the book.
+- Support Analyst at Harlow Cloud (2018-2019): handled tier two tickets and wrote the help centre articles.
+Skills: Renewals, account planning, escalation management, CRM (HubSpot), reporting`,
+    job: `Customer Success Manager — B2B software, remote with occasional Bristol office days.
+
+You will own a book of around 40 mid-market accounts, with accountability for renewals and expansion. You will run quarterly business reviews, keep an accurate view of account health in the CRM, and handle escalations before they reach the account director. You will also feed what you hear from customers into the product team's quarterly planning.
+
+We are a small team and we care more about what you have done with a book of accounts than about how recently you did it.`,
+    requirements: [
+      'Owns renewals and expansion for a book of accounts',
+      'Runs quarterly business reviews',
+      'Handles escalations and tracks account health',
+      'Feeds customer feedback into product planning',
+    ],
+    expectations: { minRequirements: 3, maxRequirements: 4 },
+  },
+  {
+    id: 'transferable',
+    label: 'Transferable skills',
+    kind: 'transferable',
+    resume: `Name: Nadia Farouk
+Email: nadia.farouk@example.com
+Location: Glasgow, UK
+Summary: Sous chef moving into food safety and compliance.
+Experience:
+- Sous Chef at The Rowan Group (2019-present): runs the kitchen on the head chef's days off, with six staff. I keep the HACCP paperwork for two sites, run the weekly temperature and hygiene checks, and train new starters on allergen control. Our last environmental health inspection returned a rating of five.
+- Chef de Partie at Lochside Hotel (2016-2019): managed the pastry section and the stock counts.
+- Commis Chef at Cafe Anatolia (2014-2016): prepared the cold section and took deliveries.
+Education:
+- Level 3 Food Safety and Hygiene for Supervisors (2018)
+- Level 2 Award in HACCP (2021)
+Skills: HACCP, allergen management, kitchen training, stock control, supplier checks`,
+    job: `Quality and Compliance Coordinator — regional restaurant group, 18 sites, based in Glasgow.
+
+You will run the food safety audit programme across all sites, twice a year per kitchen, and keep the HACCP documentation current for the group. You will train kitchen teams on hygiene and allergen control, handle environmental health visits alongside site managers, and close out the findings from every audit with a written action plan.
+
+You do not need a quality background. You do need to know a commercial kitchen from the inside, and to be the sort of person who follows up until something is actually fixed.`,
+    requirements: [
+      'Runs food safety audits across sites',
+      'Keeps HACCP documentation current',
+      'Trains kitchen teams on hygiene and allergens',
+      'Handles inspections and closes out findings',
+    ],
+    expectations: { minRequirements: 3, maxRequirements: 4 },
+  },
+  {
+    id: 'nonprofit',
+    label: 'Nonprofit role',
+    kind: 'nonprofit',
+    resume: `Name: Grace Mbeki
+Email: grace.mbeki@example.com
+Location: Cardiff, UK
+Summary: Fundraiser, six years in hospice and health charities.
+Experience:
+- Fundraising Officer at Tylor Hospice (2021-present): runs the events programme and the corporate partnership portfolio. I grew event income from £180k to £420k over three years, brought in nine new corporate partners, and manage the legacy enquiries that come through the shop network.
+- Community Fundraiser at Health Trust Wales (2018-2021): recruited and supported 60 volunteers, ran the annual appeal, and wrote the stewardship emails.
+- Retail Assistant at Oxfam (2016-2018): worked in the shop and supported the collection tin round.
+Skills: Events, corporate partnerships, volunteer management, stewardship, donor reporting
+Certifications: Fundraising (IoF) Certificate (2022)`,
+    job: `Fundraising Manager — homelessness charity, Cardiff.
+
+You will lead a team of three and own the events, community and corporate income lines, together worth around £600k a year. You will report income, pipeline and risk to the trustees each quarter, build relationships with local businesses, and work with the communications lead on the annual appeal.
+
+We are a small charity where everyone does a bit of everything. Experience of running fundraising events and of asking businesses for money is essential.`,
+    requirements: [
+      'Grows event and corporate fundraising income',
+      'Manages a small fundraising team',
+      'Reports income and pipeline to trustees',
+      'Builds relationships with local businesses',
+    ],
+    expectations: { minRequirements: 3, maxRequirements: 4 },
+  },
+  {
+    id: 'sales',
+    label: 'Sales role',
+    kind: 'sales',
+    resume: `Name: Daniel Osei
+Email: daniel.osei@example.com
+Location: London, UK
+Summary: Account executive, five years selling software to finance teams.
+Experience:
+- Account Executive at Ledgerline (2022-present): closed £1.4m of new business last year against a £1.2m quota, 118 per cent. I brought in 31 new logos in the mid-market, run my own prospecting, and keep a 3x pipeline in Salesforce.
+- Business Development Representative at Ledgerline (2020-2022): booked 220 qualified meetings in two years.
+- Sales Assistant at Beacon Supplies (2018-2020): managed the trade counter.
+Skills: New business, discovery, negotiation, Salesforce, MEDDIC basics`,
+    job: `Account Executive — SaaS for mid-market finance teams, London, hybrid.
+
+You will carry a £1.2m annual quota, split quarterly, selling a finance automation platform to finance directors and controllers at companies of 200 to 1,000 staff. You will run the full cycle from outbound prospecting and discovery through to negotiation and close, keep the CRM accurate enough to forecast from, and work with marketing on the inbound leads that come to your territory.
+
+A track record of hitting quota in software sales is essential.`,
+    requirements: [
+      'Closes new business against a quarterly quota',
+      'Runs the full cycle from prospecting',
+      'Keeps the CRM accurate enough to forecast',
+      'Works with marketing on inbound leads',
+    ],
+    expectations: { minRequirements: 3, maxRequirements: 4 },
+  },
+  {
+    id: 'finance',
+    label: 'Finance role',
+    kind: 'finance',
+    resume: `Name: Mei Lin Tan
+Email: meilin.tan@example.com
+Location: Birmingham, UK
+Summary: Finance manager, nine years in manufacturing, FP&A and cost accounting.
+Experience:
+- FP&A Manager at Bracewell Components (2020-present): owns the £58m annual budget and the quarterly forecast, writes the monthly board pack, and partners with three plant managers on cost control. I led the standard costing rebuild that cut the month-end close from nine days to five, and identified £2.1m of annual savings through a supplier and scrap review.
+- Management Accountant at Wythen Components (2016-2020): produced the monthly accounts for two sites and ran the capital expenditure process.
+Education:
+- CIMA (2019)
+- BSc Accounting and Finance, University of Birmingham (2015)
+Skills: Budgeting, forecasting, standard costing, variance analysis, SAP, Power BI`,
+    job: `Financial Planning and Analysis Manager — manufacturing group, based in Birmingham.
+
+You will own the annual budget and the quarterly reforecast for the group, produce the monthly board pack with commentary the board can act on, and partner with the operations directors on cost control at four plants. You will also lead the improvement of our reporting: the current process is spreadsheet-heavy and takes too long.
+
+A professional accountancy qualification is essential, as is experience of manufacturing or another industrial cost base.`,
+    requirements: [
+      'Owns the annual budget and quarterly forecast',
+      'Produces the monthly board reporting pack',
+      'Partners with operations on cost control',
+      'Improves the reporting process',
+    ],
+    expectations: { minRequirements: 3, maxRequirements: 4 },
+  },
+  {
+    id: 'missing-info',
+    label: 'Ad wants what the CV never establishes',
+    kind: 'missing-info',
+    resume: `Name: Amara Boateng
+Email: amara.boateng@example.com
+Location: Leeds, UK
+Summary: Account manager, four years in a marketing agency.
+Experience:
+- Account Manager at Northlight Agency (2023-present): manages six client accounts with a combined spend of £900k. I lead the client relationship day to day, run the monthly review calls, and brought two clients back from cancellation after a difficult campaign.
+- Account Executive at Northlight Agency (2022-2023): supported two senior account directors on client reporting.
+- Marketing Assistant at Dobson Retail (2021-2022): ran the email programme.
+Skills: Client relationships, account management, reporting, project coordination, Excel`,
+    job: `Enterprise Account Manager — software, Leeds, hybrid.
+
+You will personally own a portfolio of enterprise accounts, each worth six figures a year, and you will be accountable for renewals and growth across them. You will negotiate six-figure renewal terms directly with procurement, build a written account plan for each customer with the customer, and report forecast accuracy to the sales leadership team every month.
+
+Experience personally owning enterprise accounts is essential. We are not looking for someone who supported someone else's accounts.`,
+    requirements: [
+      'Owns a portfolio of enterprise accounts',
+      'Negotiates six-figure renewals',
+      'Builds account plans with customers',
+      'Reports forecast accuracy to leadership',
+    ],
+    expectations: { minRequirements: 3, maxRequirements: 4, expectQuestion: true },
   },
 ];
 

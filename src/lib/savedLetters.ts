@@ -1,4 +1,5 @@
 import { Json } from '@/integrations/supabase/types';
+import { LetterPlan, parseEvidenceMap } from '@/lib/coverLetterPlan';
 import {
   ContextItem,
   ContextRole,
@@ -27,8 +28,14 @@ import {
  * array) must still open, so every read is defensive.
  */
 
-/** Bumped when the payload shape changes; older rows stay readable. */
-export const LETTER_SESSION_VERSION = 2;
+/**
+ * Bumped when the payload shape changes; older rows stay readable.
+ *
+ * Version 4 removed the stored "Fact check" prose report along with the action
+ * that produced it: a review is now findings, not a paragraph of advice, and it
+ * travels in the session rather than being written down.
+ */
+export const LETTER_SESSION_VERSION = 4;
 
 /** Where the requirements list stands when a letter is reopened. */
 export type SavedRequirementsStatus = 'idle' | 'ready' | 'edited' | 'stale' | 'too-thin';
@@ -48,13 +55,14 @@ export interface LetterSession {
   /** The ad text the current requirements list was extracted from. */
   requirementsSource: string;
   requirementsStatus: SavedRequirementsStatus;
+  /** The evidence map the draft was planned from, so a reopened letter is not re-planned. */
+  plan: LetterPlan | null;
   paragraphs: Paragraph[];
   decisions: FlagDecisions;
   /** Every change instruction applied so far — revisions satisfy the whole set. */
   instructions: string[];
   notices: string[];
   wouldTouch: string[];
-  review: string;
   openQuestions: string[];
   ruleOffersDismissed: FlagKind[];
 }
@@ -71,12 +79,12 @@ export const emptySession = (): LetterSession => ({
   requirements: [],
   requirementsSource: '',
   requirementsStatus: 'idle',
+  plan: null,
   paragraphs: [],
   decisions: {},
   instructions: [],
   notices: [],
   wouldTouch: [],
-  review: '',
   openQuestions: [],
   ruleOffersDismissed: [],
 });
@@ -256,6 +264,7 @@ export function sessionToPayload(session: LetterSession): LetterSavePayload {
       requirements: session.requirements,
       requirementsSource: session.requirementsSource,
       requirementsStatus: session.requirementsStatus,
+      plan: session.plan ?? undefined,
       openQuestions: session.openQuestions,
     }),
     style_settings: asJson({
@@ -270,9 +279,25 @@ export function sessionToPayload(session: LetterSession): LetterSavePayload {
       instructions: session.instructions,
       notices: session.notices,
       wouldTouch: session.wouldTouch,
-      review: session.review,
       ruleOffersDismissed: session.ruleOffersDismissed,
     }),
+  };
+}
+
+/**
+ * A stored plan is normally rebuilt with the requirement list it was built from,
+ * so an old plan can never be shown against a requirement list it never saw.
+ */
+function sanitisePlan(raw: unknown, requirements: string[]): LetterPlan | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const entry = raw as Raw;
+  const stored = list(entry.requirements);
+  const map = parseEvidenceMap(entry.map ?? entry, stored.length ? stored : requirements);
+  if (!map) return null;
+  return {
+    map,
+    source: text(entry.source),
+    requirements: stored.length ? stored : requirements,
   };
 }
 
@@ -313,12 +338,12 @@ export function sessionFromRow(row: Partial<SavedLetterRow> | null | undefined):
     requirements,
     requirementsSource: requirementsSource || text(row.job_description),
     requirementsStatus: status,
+    plan: sanitisePlan(ctx.plan, requirements),
     paragraphs,
     decisions: sanitiseDecisions(style.flagDecisions),
     instructions: list(history.instructions),
     notices: list(history.notices),
     wouldTouch: list(history.wouldTouch),
-    review: text(history.review),
     openQuestions: list(ctx.openQuestions),
     ruleOffersDismissed: sanitiseKinds(history.ruleOffersDismissed),
   };

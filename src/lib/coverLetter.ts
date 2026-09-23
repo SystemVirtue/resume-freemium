@@ -1,4 +1,13 @@
 import { ResumeData } from '@/types/resume';
+import { escapeFences } from '@/lib/promptFences';
+import { EvidenceMap, evidenceMapBlock } from '@/lib/coverLetterPlan';
+
+/**
+ * The fence escaper lives in its own module so the planner and the critic can use
+ * the same one without an import circle. It is re-exported here because this is
+ * where callers have always found it.
+ */
+export { escapeFences };
 
 export type ContextRole = 'style_only' | 'research' | 'background';
 
@@ -375,6 +384,12 @@ export interface Ctx {
   appeals?: string;
   /** Questions the user has been asked and has not answered. */
   openQuestions?: string[];
+  /**
+   * The plan built before drafting: what the employer needs against what the
+   * candidate actually has. It travels with every letter call, so a revision
+   * cannot quietly reset the evidence selection the plan settled.
+   */
+  plan?: EvidenceMap;
 }
 
 const ROLE_HEADINGS: Record<ContextRole, string> = {
@@ -389,15 +404,6 @@ function roleSection(items: ContextItem[], role: ContextRole): string {
   if (!list.length) return '';
   const body = list.map((c) => `[${c.label}]\n${escapeFences(c.text.slice(0, 4000))}`).join('\n\n');
   return `<<< ${ROLE_HEADINGS[role]} >>>\n${body}\n<<< END >>>`;
-}
-
-/**
- * User-supplied text can never close the fence that isolates it. Stripping the
- * delimiters keeps a pasted ad from breaking out of its block and posing as an
- * instruction from the app.
- */
-export function escapeFences(text: string): string {
-  return (text || '').replace(/<{2,}/g, '<').replace(/>{2,}/g, '>');
 }
 
 /** The user's persistent rules, fenced and marked binding, sent verbatim with every call. */
@@ -438,6 +444,7 @@ function contextBlock(ctx: Ctx): string {
       `<<< WHAT APPEALS ABOUT THIS ROLE (SUPPLIED BY THE CANDIDATE — THE BASIS FOR MOTIVATION, AND THE ONLY ONE) >>>\n${escapeFences(
         appeals,
       )}\n<<< END >>>`,
+    ctx.plan && evidenceMapBlock(ctx.plan),
     roleSection(ctx.context, 'background'),
     roleSection(ctx.context, 'research'),
     roleSection(ctx.context, 'style_only'),
@@ -448,6 +455,13 @@ function contextBlock(ctx: Ctx): string {
     .filter(Boolean)
     .join('\n\n');
 }
+
+/**
+ * Exported so the planning call can build the same fenced context every letter
+ * call gets — the planner reads exactly what the writer will read, minus its own
+ * map.
+ */
+export { contextBlock };
 
 /** The requirements list, fenced, with instructions to use it exactly as supplied. */
 function requirementsBlock(requirements?: string[]): string {
@@ -519,9 +533,12 @@ Answer as JSON: {"requirements":["..."]} — or {"tooThin": true} if the ad does
 export function draftPrompt(ctx: Ctx): string {
   const reqs = requirementsBlock(ctx.requirements);
   const questions = (ctx.openQuestions || []).map((q) => q.trim()).filter(Boolean);
+  const planning = ctx.plan
+    ? 'The evidence map above is the plan. Write each requirement from the evidence listed for it, using the claims allowed there and nothing else, and leave out any requirement with no evidence or with a gap. Do not upgrade transferable evidence into demonstrated experience.'
+    : 'Plan silently first: for each requirement on the list (or, if there is no list, the three or four things THIS role asks for), pick the strongest evidence — one employer\'s example, several combined with correct attributions, or a point that stands without naming an employer. Deliberately leave out everything the ad does not call for.';
   return `${contextBlock(ctx)}${reqs ? `\n\n${reqs}` : ''}
 
-Plan silently first: for each requirement on the list (or, if there is no list, the three or four things THIS role asks for), pick the strongest evidence — one employer's example, several combined with correct attributions, or a point that stands without naming an employer. Deliberately leave out everything the ad does not call for.
+${planning}
 
 Then write the letter to that plan: greeting line on its own, the role named as advertised in the opening, one paragraph per requirement in the order given, and a plain closing line plus the candidate's name.
 
@@ -652,7 +669,7 @@ export function groundingPrompt(ctx: Ctx, paragraphs: string[]): string {
     .filter((c) => c.role === 'style_only' && c.text.trim())
     .map((c) => `[${c.label}]\n${c.text.slice(0, 2000)}`)
     .join('\n\n');
-  return `<<< CANDIDATE RESUME AND EXTRA BACKGROUND >>>\n${escapeFences(ctx.resume)}\n${escapeFences(
+  return `${ctx.plan ? `${evidenceMapBlock(ctx.plan)}\n\n` : ''}<<< CANDIDATE RESUME AND EXTRA BACKGROUND >>>\n${escapeFences(ctx.resume)}\n${escapeFences(
     background,
   )}\n<<< END >>>
 
@@ -673,7 +690,7 @@ ${paragraphs.map((p, i) => `[${i + 1}] ${p}`).join('\n\n')}
 
 For each paragraph, in order, report:
 - "sources": for each claim the paragraph actually makes, the short background line it rests on (quote 3-8 words each). List only sources this paragraph uses — none for material it does not contain, and never a source for a sentence that merely describes the employer. Where the claim is motivation drawn from a past letter, name that letter as the source. Empty if the paragraph makes no claims.
-- "unsupported": the specific unsupported words or short phrase — a few words, never the whole sentence — for any claim the candidate material does not support. Quote the fragment exactly as it appears.
+- "unsupported": the specific unsupported words or short phrase — a few words, never the whole sentence — for any claim the candidate material does not support. Quote the fragment exactly as it appears. Where the evidence map above marks a requirement as having no evidence, or marks its evidence as transferable, treat any stronger claim as unsupported.
 - "misattributed": any fact credited to the wrong employer, role or period, even though the fact exists somewhere in the background. Check attribution, not just existence. Quote the fragment, then " - belongs to: " and where it actually belongs.
 - "echoes": any phrase of four or more words taken from the job advertisement, including a paraphrase or a light rewording of it, and any reuse of the employer's own marketing language. Requirements restated as prose belong here.
 - "scope": any claim bigger than its source, where the words all, every, daily, always, established, originated, led or owned overstate something narrower in the background. Quote the fragment.
@@ -684,24 +701,6 @@ For each paragraph, in order, report:
 - "rules": any breach of a line in the RULES block visible in this paragraph, as {"rule":"the rule","fragment":"the words that break it"}. Ignore spelling-variant and punctuation rules — those are enforced in code.
 
 Answer as JSON: {"paragraphs":[{"sources":[{"claim":"...","source":"..."}],"unsupported":["..."],"misattributed":["..."],"echoes":["..."],"scope":["..."],"employer":["..."],"pivot":["..."],"unresolved":["..."],"needsInput":["..."],"rules":[{"rule":"...","fragment":"..."}]}]}`;
-}
-
-export function reviewPrompt(ctx: Ctx, letter: string): string {
-  const reqs = requirementsBlock(ctx.requirements);
-  return `${contextBlock(ctx)}${reqs ? `\n\n${reqs}` : ''}
-
-LETTER:
-${letter}
-
-Check this letter and report in this exact order, using short headings and bullets:
-1. Selection and structure — does the letter follow the requirements list, one paragraph per requirement in order? Is anything transcribing the resume, following its order, or listing software/tools the ad never calls for? Name the paragraphs.
-2. Statements not supported by the candidate material.
-3. Facts attached to the wrong employer, role or period.
-4. Phrases that echo the job advertisement's wording — including paraphrase — or requirements restated as prose, or the employer's own business described back to them.
-5. The substitution test: if the employer's name were swapped for another, would the letter still read the same? If yes, say what is missing that ties it to THIS role.
-6. Claims bigger than their source, sentences built around a pivot, and paragraphs that do not finish their point.
-7. Anything breaching the saved rules, the selected English variant, or the greeting/role/closing structure.
-Then one short paragraph (max 80 words) on what works and the single most useful change. No score or rating. Plain text.`;
 }
 
 export function parseResumePrompt(text: string): string {
@@ -718,7 +717,12 @@ ${text.slice(0, 20000)}`;
  * become plain "-", curly quotes become straight. Runs on every AI answer before
  * it reaches the letter, so the junk never survives into a PDF.
  */
-/** Built from a string so the zero-width joiner is not read as a combining character. */
+/**
+ * Built from a string, not a literal, so the zero-width joiner is not read as a
+ * combining character. The rule below complains about exactly that sequence; here
+ * the sequence is the point, and no character of it is meant to join.
+ */
+// eslint-disable-next-line no-misleading-character-class
 const ZERO_WIDTH = new RegExp('[\\u200B\\u200C\\u200D\\uFEFF]', 'g');
 
 export function normaliseModelText(text: string): string {
@@ -990,6 +994,26 @@ export function lettersToText(paragraphs: Paragraph[]): string {
 /** Word count of the finished letter, for the FORM length check. */
 export function letterWordCount(paragraphs: Paragraph[]): number {
   return lettersToText(paragraphs).split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Merge the questions the user has already been asked with new ones, keeping the
+ * list short and free of near-duplicates. Two is the ceiling everywhere else in
+ * the app, and a question asked twice reads as not listening.
+ */
+export function mergeQuestions(existing: string[], incoming: string[], limit = 2): string[] {
+  const out = (existing || []).map((q) => (q || '').trim()).filter(Boolean);
+  const seen = new Set(out.map((q) => q.toLowerCase()));
+  for (const raw of incoming || []) {
+    const question = (raw || '').trim();
+    if (!question) continue;
+    const key = question.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(question);
+    if (out.length >= limit) break;
+  }
+  return out.slice(0, limit);
 }
 
 /* ------------------------------------------------------------------ *

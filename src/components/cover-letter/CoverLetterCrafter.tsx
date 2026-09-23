@@ -42,6 +42,31 @@ import { toast } from '@/hooks/use-toast';
 import { useAi } from '@/hooks/useAi';
 import { parseJsonAnswer } from '@/lib/ai/client';
 import { downloadLetterPdf } from '@/lib/letterPdf';
+import {
+  CRITIC_SYSTEM,
+  Critique,
+  FAILURE_LABELS,
+  critiqueInstructions,
+  critiquePrompt,
+  critiqueSummaryLine,
+  findingSignature,
+  hasBlockingFindings,
+  mustFixFindings,
+  parseCritique,
+  shouldFixFindings,
+} from '@/lib/coverLetterCritic';
+import {
+  LetterPlan,
+  PLAN_SYSTEM,
+  STRENGTH_LABELS,
+  mapCoverage,
+  mapQuestions,
+  evidenceMapBlock,
+  parseEvidenceMap,
+  planIsStale,
+  planPrompt,
+} from '@/lib/coverLetterPlan';
+import { GATE_META, failureLine, qualityGate } from '@/lib/coverLetterGate';
 import { AiAssistantButton } from '@/components/ai/AiAssistantButton';
 import { ParagraphCard } from './ParagraphCard';
 import { SavedLetters } from './SavedLetters';
@@ -56,6 +81,7 @@ import {
   REQUIREMENTS_SYSTEM,
   RULES_STORAGE_KEY,
   ContextItem,
+  Ctx,
   ENGLISH_VARIANTS,
   FlagDecision,
   FlagDecisions,
@@ -65,6 +91,7 @@ import {
   SourceRef,
   StyleSettings,
   approvedInstructions,
+  contextBlock,
   convertVariant,
   detectVariant,
   dismissalCounts,
@@ -78,12 +105,12 @@ import {
   insertPrompt,
   letterWordCount,
   lettersToText,
+  mergeQuestions,
   newId,
   normaliseModelText,
   promptWithInstruction,
   requirementsPrompt,
   resumeSummary,
-  reviewPrompt,
   rulesVariant,
   stylePrompt,
   suggestedRule,
@@ -177,15 +204,15 @@ const emptyGrounding = (): Grounding => ({
 /** No more than two "needs your input" questions reach the user per draft. */
 const NEEDS_INPUT_LIMIT = 2;
 
-const collectQuestions = (list: Paragraph[], already: string[] = []): string[] => {
-  const out = [...already];
-  for (const p of list) {
-    for (const q of strings(p.needsInput)) {
-      if (out.length >= NEEDS_INPUT_LIMIT) return out;
-      if (!out.some((existing) => existing.toLowerCase() === q.toLowerCase())) out.push(q);
-    }
-  }
-  return out;
+const collectQuestions = (list: Paragraph[], already: string[] = []): string[] =>
+  mergeQuestions(already, list.flatMap((p) => strings(p.needsInput)), NEEDS_INPUT_LIMIT);
+
+/** How the quality gate is painted, by verdict. */
+const GATE_CARD: Record<'good' | 'warning' | 'primary' | 'danger', string> = {
+  good: 'border-emerald-500/50 bg-emerald-500/5',
+  warning: 'border-amber-500/50 bg-amber-500/5',
+  primary: 'border-primary/50 bg-primary/5',
+  danger: 'border-destructive/50 bg-destructive/5',
 };
 
 /** Past letters are a guide to tone, so a suggestion becomes a sentence in the field. */
@@ -240,7 +267,22 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
 
   const [title, setTitle] = useState('Untitled cover letter');
   const [letterId, setLetterId] = useState<string | null>(null);
-  const [review, setReview] = useState('');
+  /**
+   * The plan: what this employer needs against what this candidate actually has.
+   * Built once per ad and requirement list, then carried into every letter call.
+   */
+  const [plan, setPlan] = useState<LetterPlan | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  /** The last independent review of this letter: findings, and what to keep. */
+  const [critique, setCritique] = useState<Critique | null>(null);
+  /**
+   * Review findings the user has read and set aside. Keyed by the finding's own
+   * signature, so a later review of different words cannot inherit a decision
+   * made about these ones. Must-fix items cannot be set aside: they are the ones
+   * that would embarrass the candidate, and they are fixed or they stay.
+   */
+  const [findingDecisions, setFindingDecisions] = useState<Record<string, true>>({});
   /** Style suggestions from the model, written into the tone field when tapped. */
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [instruction, setInstruction] = useState('');
@@ -251,6 +293,8 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
   /** Locked paragraphs a change could not be applied to. */
   const [wouldTouch, setWouldTouch] = useState<string[]>([]);
   const [resetOpen, setResetOpen] = useState(false);
+  /** The gate has not passed, and the user has asked for the PDF anyway. */
+  const [exportOpen, setExportOpen] = useState(false);
 
   /** Letters read back out of the account, and the state of writing this one down. */
   const [savedLetters, setSavedLetters] = useState<SavedLetterRow[]>([]);
@@ -300,7 +344,7 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
       .then(({ data }) => setSavedResumes(data || []));
   }, [user]);
 
-  const ctx = useMemo(
+  const ctx: Ctx = useMemo(
     () => ({
       resume: resumeText.slice(0, 6000),
       job,
@@ -310,8 +354,9 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
       requirements,
       appeals,
       openQuestions,
+      plan: plan?.map,
     }),
-    [resumeText, job, contextItems, style, rules, requirements, appeals, openQuestions],
+    [resumeText, job, contextItems, style, rules, requirements, appeals, openQuestions, plan],
   );
 
   const letterText = lettersToText(paragraphs);
@@ -334,12 +379,12 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
       requirements,
       requirementsSource: reqSourceRef.current,
       requirementsStatus: reqStatus === 'loading' ? 'idle' : reqStatus,
+      plan,
       paragraphs,
       decisions,
       instructions: instructionHistory,
       notices,
       wouldTouch,
-      review,
       openQuestions,
       ruleOffersDismissed,
     }),
@@ -354,12 +399,12 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
       rules,
       requirements,
       reqStatus,
+      plan,
       paragraphs,
       decisions,
       instructionHistory,
       notices,
       wouldTouch,
-      review,
       openQuestions,
       ruleOffersDismissed,
     ],
@@ -532,10 +577,10 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
    * bigger than its source, describes the employer, or does not finish its point.
    */
   const ground = useCallback(
-    async (base: Paragraph[]): Promise<Paragraph[]> => {
+    async (base: Paragraph[], useCtx: Ctx = ctx): Promise<Paragraph[]> => {
       if (!base.length) return base;
       const text = await run(
-        { prompt: groundingPrompt(ctx, base.map((p) => p.text)), system: GROUNDING_SYSTEM, json: true },
+        { prompt: groundingPrompt(useCtx, base.map((p) => p.text)), system: GROUNDING_SYSTEM, json: true },
         'checking sources',
       );
       if (!text) return base;
@@ -547,8 +592,78 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
     [ctx, run],
   );
 
+  /**
+   * The planning stage. It runs once per ad and requirement list, not per draft:
+   * the letter can be rewritten all afternoon without re-planning what evidence
+   * belongs in it, and the reviewer needs the same map the writer used.
+   */
+  const buildPlan = useCallback(
+    async (force = false): Promise<LetterPlan | null> => {
+      if (!ready) return null;
+      if (!force && plan && !planIsStale(plan, job, requirements)) return plan;
+      setPlanBusy(true);
+      try {
+        const text = await run(
+          {
+            prompt: planPrompt({
+              // The planner reads exactly what the writer will read, minus its own map.
+              context: contextBlock({ ...ctx, plan: undefined }),
+              requirements,
+            }),
+            system: PLAN_SYSTEM,
+            json: true,
+          },
+          'planning',
+        );
+        if (!text) return plan;
+        const map = parseEvidenceMap(parseJsonAnswer<any>(text), requirements);
+        if (!map) return plan;
+        const next: LetterPlan = { map, source: job, requirements: [...requirements] };
+        setPlan(next);
+        setPlanOpen(true);
+        // A gap the plan found is a question for the user, and only they can answer it.
+        setOpenQuestions((prev) => mergeQuestions(prev, mapQuestions(map), NEEDS_INPUT_LIMIT));
+        return next;
+      } finally {
+        setPlanBusy(false);
+      }
+    },
+    [ctx, job, plan, ready, requirements, run],
+  );
+
+  /**
+   * The critic: an independent, adversarial read of the letter as it stands. It
+   * reports findings and never rewrites, so what the writer produced and what the
+   * reviewer thinks of it stay separate in the user's hands.
+   */
+  const critiqueLetter = useCallback(
+    async (list: Paragraph[], useCtx: Ctx = ctx): Promise<Critique | null> => {
+      if (!list.length) return null;
+      const text = await run(
+        {
+          prompt: critiquePrompt({
+            context: contextBlock({ ...useCtx, plan: undefined }),
+            letter: lettersToText(list),
+            planBlock: useCtx.plan ? evidenceMapBlock(useCtx.plan) : '',
+          }),
+          system: CRITIC_SYSTEM,
+          json: true,
+        },
+        'reviewing',
+      );
+      if (!text) return null;
+      return parseCritique(parseJsonAnswer<any>(text));
+    },
+    [ctx, run],
+  );
+
   const generate = async () => {
-    const text = await run({ prompt: draftPrompt(ctx), system: LETTER_SYSTEM, json: true }, 'draft');
+    const activePlan = await buildPlan();
+    const draftCtx: Ctx = { ...ctx, plan: activePlan?.map };
+    const text = await run(
+      { prompt: draftPrompt(draftCtx), system: LETTER_SYSTEM, json: true },
+      'draft',
+    );
     if (!text) return;
     const parsed = parseJsonAnswer<{
       paragraphs: string[];
@@ -559,11 +674,41 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
     const base: Paragraph[] = list.map((t) => ({ id: newId(), text: String(t).trim(), locked: false }));
     setNotices([...(parsed?.notices || []).map(String), ...variantMismatchNotice()]);
     setWouldTouch([]);
-    setReview('');
+    setCritique(null);
     setInstructionHistory([]);
-    const grounded = postProcess(await ground(base));
+    const grounded = postProcess(await ground(base, draftCtx));
     commit(grounded);
     setOpenQuestions((prev) => collectQuestions(grounded, [...prev, ...strings(parsed?.questions)]));
+
+    // The writer is never the last word on its own work. One independent review
+    // runs before the gate, and a finding that blocks the letter is repaired
+    // once, automatically. Anything it finds after that is shown rather than
+    // looped on: the user decides whether to fix it.
+    const crit = await critiqueLetter(grounded, draftCtx);
+    setCritique(crit);
+    if (hasBlockingFindings(crit)) {
+      const repaired = await runRevision(
+        'Fix the problems the review raised.',
+        critiqueInstructions(crit, 'must-fix'),
+        {
+          record: false,
+          useCtx: draftCtx,
+          label: 'repairing',
+          // The draft that was just reviewed, not the previous draft on screen.
+          list: grounded,
+        },
+      );
+      if (repaired) {
+        // The findings describe the letter as it was. A fresh review is the only
+        // honest way to know whether the repair worked, and a stale review would
+        // hold the gate red for a problem that no longer exists.
+        setCritique(null);
+        setNotices((prev) => [
+          ...prev,
+          'The review raised findings that had to be repaired, and they were. Run the review again to check the result.',
+        ]);
+      }
+    }
   };
 
   const editParagraph = async (index: number, mode: 'rephrase' | 'regenerate') => {
@@ -601,57 +746,133 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
     commit(next);
   };
 
-  const applyInstruction = async () => {
-    if (!instruction.trim()) return;
-    const locked = paragraphs.filter((p) => p.locked).map((p) => p.text);
+  /**
+   * One revision pass. Everything the letter has to satisfy travels together —
+   * the user's instructions, the flags they approved, the findings the review
+   * raised, and the wording they told the app to leave alone — because a set of
+   * requirements satisfied one at a time is how earlier fixes get undone.
+   */
+  const runRevision = async (
+    instruction: string,
+    extraApproved: string[] = [],
+    /** `list` is for a caller revising text it has just produced and has not seen rendered yet. */
+    options: { record?: boolean; useCtx?: Ctx; label?: string; list?: Paragraph[] } = {},
+  ): Promise<Paragraph[] | null> => {
+    const useCtx = options.useCtx ?? ctx;
+    const base = options.list ?? paragraphs;
+    const locked = base.filter((p) => p.locked).map((p) => p.text);
     const text = await run(
       {
         prompt: promptWithInstruction(
-          ctx,
-          letterText,
+          useCtx,
+          lettersToText(base),
           instruction,
           locked,
           instructionHistory,
-          approvedInstructions(paragraphs, decisions),
-          dismissedFragments(paragraphs, decisions),
+          [...approvedInstructions(base, decisions), ...extraApproved],
+          dismissedFragments(base, decisions),
         ),
         system: LETTER_SYSTEM,
         json: true,
       },
-      'revising',
+      options.label || 'revising',
     );
-    if (!text) return;
+    if (!text) return null;
     const parsed = parseJsonAnswer<{ paragraphs: string[]; notices?: string[]; wouldTouch?: string[] }>(text);
     const list = parsed?.paragraphs?.length ? parsed.paragraphs : text.split(/\n{2,}/).filter(Boolean);
     const revised: Paragraph[] = list.map((t, i) => ({
-      id: paragraphs[i]?.id || newId(),
-      text: paragraphs[i]?.locked ? paragraphs[i].text : String(t).trim(),
-      locked: paragraphs[i]?.locked ?? false,
-      ...(paragraphs[i]?.locked ? {} : emptyGrounding()),
+      id: base[i]?.id || newId(),
+      text: base[i]?.locked ? base[i].text : String(t).trim(),
+      locked: base[i]?.locked ?? false,
+      ...(base[i]?.locked ? {} : emptyGrounding()),
     }));
     // Post-passes apply to every paragraph, locked included; grounding refreshes the rest.
     const processed = postProcess(revised);
     const changed = processed.filter((p) => !p.locked);
-    const grounded = await ground(changed);
+    const grounded = await ground(changed, useCtx);
     let gi = 0;
     const finished = processed.map((p) => (p.locked ? p : grounded[gi++] || p));
     commit(finished);
     setNotices([...(parsed?.notices || []).map(String), ...variantMismatchNotice()]);
     setWouldTouch((parsed?.wouldTouch || []).map(String).filter(Boolean));
-    setInstructionHistory((h) => [...h, instruction.trim()]);
+    if (options.record !== false) setInstructionHistory((h) => [...h, instruction.trim()]);
+    setOpenQuestions((prev) => collectQuestions(finished.filter((p) => !p.locked), prev));
+    return finished;
+  };
+
+  const applyInstruction = async () => {
+    if (!instruction.trim()) return;
+    // The review's findings are part of the set every revision has to satisfy.
+    const finished = await runRevision(instruction, critiqueInstructions(critique, 'must-fix'));
+    if (!finished) return;
     // An answered question is answered for good.
     if (pendingQuestion) {
       setOpenQuestions((prev) => prev.filter((q) => q !== pendingQuestion));
       setPendingQuestion(null);
     }
     setInstruction('');
-    setOpenQuestions((prev) => collectQuestions(finished.filter((p) => !p.locked), prev));
   };
 
-  const runReview = async () => {
-    const text = await run({ prompt: reviewPrompt(ctx, letterText), system: LETTER_SYSTEM }, 'review');
-    if (text) setReview(text.trim());
+  /**
+   * Repair pass driven by the review. The findings are handed over as must-fix
+   * instructions, the letter is rewritten once against all of them, and the
+   * findings are cleared: they described the old text, and a stale review would
+   * keep the gate red for a problem that no longer exists.
+   */
+  const fixFromReview = async (severity: 'must-fix' | 'should-fix' = 'must-fix') => {
+    const items = critiqueInstructions(critique, severity);
+    if (!items.length) return;
+    const finished = await runRevision(
+      severity === 'must-fix'
+        ? 'Fix the problems the review raised, without undoing what it said works.'
+        : "Apply the review's remaining suggestions, without undoing what it said works.",
+      items,
+      { record: false, label: 'repairing' },
+    );
+    // A repair that never happened must not clear the findings that asked for it.
+    if (!finished) return;
+    setCritique(null);
+    setNotices((prev) => [...prev, 'The review findings were applied. Run the review again to check the result.']);
   };
+
+  /** Review the letter as it stands, on demand. */
+  const runCritique = async () => {
+    if (!paragraphs.length) return;
+    const crit = await critiqueLetter(paragraphs);
+    if (crit) setCritique(crit);
+  };
+
+  /**
+   * The gate. Computed from what is on screen rather than stored, so it can never
+   * disagree with the letter the user is looking at.
+   */
+  const gate = useMemo(
+    () =>
+      qualityGate({
+        paragraphs,
+        decisions,
+        critique,
+        acknowledgedFindings: Object.keys(findingDecisions),
+        words,
+        openQuestions,
+        resume: resumeText,
+      }),
+    [paragraphs, decisions, critique, findingDecisions, words, openQuestions, resumeText],
+  );
+
+  /** Set a review finding aside, or take it back. */
+  const toggleFinding = (signature: string) => {
+    setFindingDecisions((d) => {
+      const next = { ...d };
+      if (next[signature]) delete next[signature];
+      else next[signature] = true;
+      return next;
+    });
+  };
+
+  /** Requirements the plan found no evidence for, and whether the plan still fits the ad. */
+  const uncovered = useMemo(() => (plan ? mapCoverage(plan.map).uncovered : []), [plan]);
+  const planStale = useMemo(() => planIsStale(plan, job, requirements), [plan, job, requirements]);
 
   const decide = (flagId: string, decision: FlagDecision | null) => {
     setDecisions((d) => {
@@ -799,8 +1020,10 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
       setReqStatus(restored.requirementsStatus);
       setHistory([restored.paragraphs]);
       setCursor(0);
-      setReview(restored.review);
       setSuggestions([]);
+      setPlan(restored.plan);
+      setPlanOpen(false);
+      setCritique(null);
       setInstruction('');
       setPendingQuestion(null);
       setNotices(restored.notices);
@@ -872,8 +1095,10 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
     reqSourceRef.current = '';
     setHistory([[]]);
     setCursor(0);
-    setReview('');
     setSuggestions([]);
+    setPlan(null);
+    setPlanOpen(false);
+    setCritique(null);
     setInstruction('');
     setInstructionHistory([]);
     setNotices([]);
@@ -1194,6 +1419,131 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
             onRefresh={() => void refreshLetters()}
           />
 
+          {(plan || planBusy) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  Plan
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    evidence first
+                  </Badge>
+                </CardTitle>
+                <CardDescription>
+                  What this employer needs, and what you actually have for it. The letter is written from
+                  this map, and the review checks the letter against it.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {planBusy && (
+                  <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Reading the ad against your background…
+                  </p>
+                )}
+                {plan && (
+                  <>
+                    {planStale && (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        The ad or the requirements changed since this plan was built. Refresh it before the
+                        next draft so the letter is written to the current list.
+                      </p>
+                    )}
+                    {plan.map.purpose && (
+                      <p className="text-xs">
+                        <span className="text-muted-foreground">Hiring for: </span>
+                        {plan.map.purpose}
+                      </p>
+                    )}
+                    {plan.map.seniority && (
+                      <p className="text-xs">
+                        <span className="text-muted-foreground">Level: </span>
+                        {plan.map.seniority}
+                      </p>
+                    )}
+                    {plan.map.priorities.length > 0 && (
+                      <p className="text-xs">
+                        <span className="text-muted-foreground">Returns to: </span>
+                        {plan.map.priorities.join(' · ')}
+                      </p>
+                    )}
+                    {plan.map.whyThisRole.length > 0 && (
+                      <p className="text-xs">
+                        <span className="text-muted-foreground">Why this role, in your words: </span>
+                        {plan.map.whyThisRole.join(' · ')}
+                      </p>
+                    )}
+                    {plan.map.entries.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {plan.map.entries.map((e, i) => (
+                          <Badge
+                            key={i}
+                            variant={
+                              e.strength === 'strong'
+                                ? 'default'
+                                : e.strength === 'partial'
+                                  ? 'secondary'
+                                  : 'outline'
+                            }
+                            className="text-[10px] font-normal"
+                            title={e.gap || STRENGTH_LABELS[e.strength].hint}
+                          >
+                            {i + 1}. {STRENGTH_LABELS[e.strength].label}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {planOpen && (
+                      <div className="space-y-2 pt-1">
+                        {plan.map.entries.map((e, i) => (
+                          <div key={i} className="space-y-1 rounded-md border border-border p-2">
+                            <p className="text-xs font-medium">{e.requirement || `Requirement ${i + 1}`}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {STRENGTH_LABELS[e.strength].label}
+                              {e.source ? ` — ${e.source}` : ''}
+                            </p>
+                            {e.evidence && <p className="text-xs italic">“{e.evidence}”</p>}
+                            {e.claim && <p className="text-xs">Safe to claim: {e.claim}</p>}
+                            {e.gap && (
+                              <p className="text-xs text-amber-700 dark:text-amber-400">Gap: {e.gap}</p>
+                            )}
+                          </div>
+                        ))}
+                        {uncovered.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Nothing in your background answers{' '}
+                            {uncovered
+                              .map((e) => e.requirement)
+                              .filter(Boolean)
+                              .join(', ')}
+                            . Those requirements stay out of the letter unless you supply the evidence.
+                          </p>
+                        )}
+                        {plan.map.terminology.length > 0 && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Their words for your work: {plan.map.terminology.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex gap-2 pt-1">
+                      <Button variant="outline" size="sm" onClick={() => setPlanOpen((v) => !v)}>
+                        {planOpen ? 'Hide the detail' : 'Show the detail'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={planBusy || isBusy || !ready}
+                        onClick={() => void buildPlan(true)}
+                      >
+                        Refresh the plan
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardContent className="flex flex-wrap items-center gap-2 pt-6">
               <Input value={title} onChange={(e) => setTitle(e.target.value)} className="w-56" />
@@ -1209,9 +1559,6 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
               >
                 <Redo2 className="h-4 w-4 mr-1" />
                 Redo
-              </Button>
-              <Button variant="outline" size="sm" disabled={!paragraphs.length || isBusy} onClick={runReview}>
-                Fact check
               </Button>
               <Button
                 variant="outline"
@@ -1235,7 +1582,12 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
                 )}
                 Save
               </Button>
-              <Button variant="outline" size="sm" disabled={!paragraphs.length} onClick={exportPdf}>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!paragraphs.length}
+                onClick={() => (gate.ready ? void exportPdf() : setExportOpen(true))}
+              >
                 <FileText className="h-4 w-4 mr-1" />
                 Download PDF
               </Button>
@@ -1270,13 +1622,123 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
             </CardContent>
           </Card>
 
-          {review && (
+          {paragraphs.length > 0 && (
+            <Card className={GATE_CARD[GATE_META[gate.verdict].tone]}>
+              <CardContent className="space-y-2 pt-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium">{gate.label}</p>
+                  <Badge
+                    variant={gate.ready ? 'default' : 'outline'}
+                    className="text-[10px] font-normal"
+                  >
+                    {gate.ready ? 'nothing outstanding' : 'not final yet'}
+                  </Badge>
+                  <span className="ml-auto text-xs text-muted-foreground">{words} words</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{gate.detail}</p>
+                {gate.reasons.map((r, i) => (
+                  <p key={i} className="text-xs">
+                    {r}
+                  </p>
+                ))}
+                {gate.notes.map((n, i) => (
+                  <p key={`note-${i}`} className="text-[11px] text-muted-foreground">
+                    {n}
+                  </p>
+                ))}
+                {Object.keys(gate.failures).length > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Flagged by category: {failureLine(gate.failures)}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button variant="outline" size="sm" disabled={isBusy} onClick={() => void runCritique()}>
+                    Review as a hiring manager
+                  </Button>
+                  {mustFixFindings(critique).length > 0 && (
+                    <Button size="sm" disabled={isBusy} onClick={() => void fixFromReview('must-fix')}>
+                      Fix what the review found
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {critique && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Fact check</CardTitle>
+                <CardTitle className="text-base">Review</CardTitle>
+                <CardDescription>
+                  {critiqueSummaryLine(critique)} — evidence and relevance count for more here than polished
+                  prose.
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">{review}</p>
+              <CardContent className="space-y-2">
+                {critique.findings.map((f, i) => {
+                  const signature = findingSignature(f);
+                  const setAside = f.severity === 'should-fix' && Boolean(findingDecisions[signature]);
+                  return (
+                    <div
+                      key={i}
+                      className={`space-y-1 rounded-md border border-border p-2 ${
+                        setAside ? 'opacity-60' : ''
+                      }`}
+                    >
+                      <p className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                        <Badge
+                          variant={f.severity === 'must-fix' ? 'destructive' : 'secondary'}
+                          className="text-[10px] font-normal"
+                        >
+                          {FAILURE_LABELS[f.code]}
+                        </Badge>
+                        <span className="text-muted-foreground">
+                          {f.paragraph > 0 ? `paragraph ${f.paragraph}` : 'the letter as a whole'}
+                        </span>
+                        {setAside && <span className="text-muted-foreground">set aside</span>}
+                      </p>
+                      {f.passage && <p className="text-xs italic">“{f.passage}”</p>}
+                      {f.problem && <p className="text-xs">{f.problem}</p>}
+                      {f.fix && <p className="text-xs text-muted-foreground">Instead: {f.fix}</p>}
+                      {f.severity === 'should-fix' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[11px]"
+                          onClick={() => toggleFinding(signature)}
+                        >
+                          {setAside ? 'Wait, fix it' : 'Set aside'}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+                {critique.keep.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Leave as it is: {critique.keep.join('; ')}
+                  </p>
+                )}
+                {critique.summary && <p className="text-xs text-muted-foreground">{critique.summary}</p>}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {mustFixFindings(critique).length > 0 && (
+                    <Button size="sm" disabled={isBusy} onClick={() => void fixFromReview('must-fix')}>
+                      Fix the must-fix items
+                    </Button>
+                  )}
+                  {shouldFixFindings(critique).length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isBusy}
+                      onClick={() => void fixFromReview('should-fix')}
+                    >
+                      Apply the rest
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="sm" onClick={() => setCritique(null)}>
+                    Dismiss
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -1482,6 +1944,31 @@ export const CoverLetterCrafter: React.FC<CoverLetterCrafterProps> = ({ onBack }
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={startNew}>Start new</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* A letter does not become final by being downloaded: the gate is asked first. */}
+      <AlertDialog open={exportOpen} onOpenChange={setExportOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>This letter has not passed the gate</AlertDialogTitle>
+            <AlertDialogDescription>
+              {gate.label}.{' '}
+              {gate.reasons[0] || 'Something is still outstanding.'} You can download it now and keep
+              working, or fix that first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep working</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setExportOpen(false);
+                void exportPdf();
+              }}
+            >
+              Download anyway
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

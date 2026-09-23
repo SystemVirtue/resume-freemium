@@ -312,9 +312,9 @@ describe('style migration', () => {
 });
 
 describe('the evaluation corpus', () => {
-  it('covers all ten required cases with unique ids', () => {
-    expect(CORPUS).toHaveLength(10);
-    expect(new Set(CORPUS.map((c) => c.id)).size).toBe(10);
+  it('covers every required case with unique ids', () => {
+    expect(CORPUS).toHaveLength(18);
+    expect(new Set(CORPUS.map((c) => c.id)).size).toBe(18);
     expect(new Set(CORPUS.map((c) => c.kind))).toEqual(
       new Set([
         'technical',
@@ -327,8 +327,22 @@ describe('the evaluation corpus', () => {
         'verbose-cv',
         'thin-ad',
         'injected-ad',
+        'executive',
+        'junior',
+        'employment-gap',
+        'transferable',
+        'nonprofit',
+        'sales',
+        'finance',
+        'missing-info',
       ]),
     );
+  });
+
+  it('includes a case the planner is expected to ask about rather than guess at', () => {
+    const asking = CORPUS.filter((c) => c.expectations.expectQuestion);
+    expect(asking.length).toBeGreaterThan(0);
+    asking.forEach((c) => expect(c.requirements.length, c.id).toBeGreaterThan(0));
   });
 
   it('keeps every requirement short, plain and one idea per line', () => {
