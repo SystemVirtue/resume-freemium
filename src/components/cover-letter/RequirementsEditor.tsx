@@ -103,8 +103,7 @@ export const RequirementsEditor: React.FC<RequirementsEditorProps> = ({
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground">
-            The letter is written to this list — one paragraph each, in this order. Edit freely; it
-            is yours.
+            The letter uses this list as editable guidance, grouping related requirements into evidence paragraphs. Edit freely; it is yours.
           </p>
 
           <div className="space-y-1">

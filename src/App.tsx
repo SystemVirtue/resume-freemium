@@ -7,6 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { AiSettingsProvider } from "@/contexts/AiSettingsContext";
 import { AiOnboardingDialog } from "@/components/ai/AiOnboardingDialog";
 import Index from "./pages/Index";
+import EvalLab from "./pages/EvalLab";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,8 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<Index />} />
+              {/* Hidden eval lab (self-test harness). Not linked from navigation. */}
+              <Route path="/eval" element={<EvalLab />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
