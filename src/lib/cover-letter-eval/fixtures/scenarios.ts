@@ -10,9 +10,10 @@ export interface EvalScenario {
   style: StyleSettings;
   rules: string;
   context: ContextItem[];
+  /** What the candidate says appeals about this role — the only motivation source. */
+  appeals?: string;
   /** Ask-for-a-change instruction applied after the first draft, to exercise the revision path. */
   followUp?: string;
-  repeats?: number;
 }
 
 const ctxItem = (id: string, label: string, text: string, role: ContextItem['role']): ContextItem => ({ id, label, text, role });
@@ -21,7 +22,7 @@ const RESUME_BY_ID = new Map(EVAL_RESUMES.map((resume) => [resume.id, resume]));
 const JOB_BY_ID = new Map(EVAL_JOBS.map((job) => [job.id, job]));
 
 const plainStyle = (over: Partial<StyleSettings> = {}): StyleSettings => ({
-  chips: [], custom: '', english: 'uk', template: 'classic', font: 'serif', color: 'navy', ...over,
+  custom: '', english: 'uk', ...over,
 });
 
 const make = (scenario: Omit<EvalScenario, 'resumeId' | 'jobId'> & { resume: string; job: string }): EvalScenario => {
@@ -36,7 +37,7 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     id: 'sc-grad-admin',
     label: 'Graduate → admin role (entry path)',
     resume: 'res-graduate', job: 'job-grad-admin',
-    style: plainStyle({ chips: ['warm'] }),
+    style: plainStyle({ custom: 'warm' }),
     rules: '',
     context: [ctxItem('c1', 'Why Fernwell', 'I liked that the trust trains its admin staff into adviser roles.', 'style_only')],
   }),
@@ -44,7 +45,7 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     id: 'sc-mid-tech',
     label: 'Mid engineer → frontend (stretch case)',
     resume: 'res-mid-tech', job: 'job-frontend-terse',
-    style: plainStyle({ english: 'us', chips: ['direct', 'technical'] }),
+    style: plainStyle({ english: 'us', custom: 'direct, technical' }),
     rules: 'No em dashes. Keep it under 300 words.',
     context: [ctxItem('c2', 'Why Larkspur', 'The design-system ownership is the part of the job I want next.', 'style_only')],
   }),
@@ -52,7 +53,7 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     id: 'sc-senior-content',
     label: 'Senior content → content lead (strong match)',
     resume: 'res-senior-marketing', job: 'job-content-lead',
-    style: plainStyle({ chips: ['confident'] }),
+    style: plainStyle({ custom: 'confident' }),
     rules: 'Never use the word "passionate".',
     context: [ctxItem('c3', 'Why Parcelly', 'Logistics is the sector I know best from Northbeam.', 'style_only')],
   }),
@@ -60,7 +61,7 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     id: 'sc-changer-ux',
     label: 'Career changer → UX researcher',
     resume: 'res-career-changer', job: 'job-ux-researcher',
-    style: plainStyle({ english: 'us', chips: ['understated'] }),
+    style: plainStyle({ english: 'us', custom: 'understated' }),
     rules: 'No em dashes. Do not mention my age or years of experience as a negative.',
     context: [ctxItem('c4', 'Why Grove', 'Checkout flow redesign is exactly what I did in store, now with research methods.', 'style_only')],
   }),
@@ -132,7 +133,7 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     id: 'sc-support-au',
     label: 'Mid engineer → AU support lead (second mismatch)',
     resume: 'res-mid-tech', job: 'job-support-bullets',
-    style: plainStyle({ english: 'uk', chips: ['warm'] }),
+    style: plainStyle({ english: 'uk', custom: 'warm' }),
     rules: '',
     context: [ctxItem('c5', 'Support interest', 'I mentored two graduates and enjoyed the teaching side of engineering.', 'background')],
   }),
@@ -143,6 +144,7 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
     style: plainStyle(),
     rules: 'No em dashes.',
     context: [],
+    appeals: 'Parcelly is the logistics-tech space I know best and the benchmark-report craft is the work I most enjoy.',
     followUp: 'Lead the second paragraph with the benchmark report story, and keep it under 350 words.',
   }),
 ];

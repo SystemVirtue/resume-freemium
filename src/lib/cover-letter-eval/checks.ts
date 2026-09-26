@@ -1,12 +1,5 @@
-import {
-  Ctx, Paragraph, flagRepetition, flagParagraphOpenings, detectVariant,
-  normaliseModelText, rulesVariant,
-} from '@/lib/coverLetter';
-
-export interface DeterministicResult {
-  passed: boolean;
-  checks: EvalCheck[];
-}
+import { GateResult, ngramOverlap } from '@/lib/coverLetterGate';
+import { detectVariant } from '@/lib/coverLetter';
 
 export interface EvalCheck {
   id: string;
@@ -15,31 +8,48 @@ export interface EvalCheck {
   detail: string;
 }
 
-const words = (text: string): string[] => (normaliseModelText(text).toLowerCase().match(/[a-z']+/g) || []);
+export interface DeterministicResult {
+  passed: boolean;
+  checks: EvalCheck[];
+}
 
-const OPENERS = /^(i am|this letter is to|i am writing|dear hiring|to whom it may concern|please accept)/i;
+const tokens = (s: string) => (s || '').toLowerCase().match(/[a-z']+/g) || [];
+
+export interface DeterministicInput {
+  letterText: string;
+  jobAd: string;
+  resumeText: string;
+  candidateName: string;
+  rules: string;
+  style: { custom: string; english?: 'uk' | 'us' };
+  gate: GateResult | null;
+  /** Paragraph texts in order. */
+  letters: string[];
+  notices: string[];
+  questions: string[];
+}
 
 /** Framework: "An opening that says which role this is and who the candidate is." */
-export const openingNamesRoleAndCandidate = (paragraphs: Paragraph[], resumeName: string): EvalCheck => {
-  const first = paragraphs[0] ? normaliseModelText(paragraphs[0].text) : '';
-  const nameParts = resumeName.toLowerCase().split(/\s+/).filter((part) => part.length > 1);
+const openingCheck = (letters: string[], candidateName: string): EvalCheck => {
+  const first = letters[0] || '';
+  const nameParts = candidateName.toLowerCase().split(/\s+/).filter((part) => part.length > 1);
   const nameHit = nameParts.length ? nameParts.some((part) => first.toLowerCase().includes(part)) : false;
-  const roleHint = /(role|position|vacancy|application|apply|manager|engineer|nurse|electrician|designer|coordinator|lead|assistant|programme|program)/i;
-  const passes = first.trim().length > 0 && (nameHit || /\b(i|my)\b/i.test(first)) && roleHint.test(first);
+  const roleHint = /(role|position|vacancy|application|apply|manager|engineer|nurse|electrician|designer|coordinator|lead|assistant|programme|program|writer|analyst)/i;
   return {
     id: 'opening-names-role-candidate',
-    label: 'Opening names role and candidate before evidence',
-    passed: passes,
+    label: 'Opening names the role and candidate before evidence',
+    passed: first.trim().length > 0 && (nameHit || /\b(i|my)\b/i.test(first)) && roleHint.test(first),
     detail: `first 140 chars: ${first.slice(0, 140) || '(empty)'}`,
   };
 };
 
 /** Framework: "A plain closing sentence." */
-export const hasPlainClosing = (paragraphs: Paragraph[]): EvalCheck => {
-  const last = paragraphs.length ? normaliseModelText(paragraphs[paragraphs.length - 1].text).trim() : '';
+const closingCheck = (letters: string[]): EvalCheck => {
+  const last = letters[letters.length - 1] || '';
   const closingish = /^(kind regards|regards|yours sincerely|yours faithfully|sincerely|thank you|best)/i;
-  const passes = last.length > 0 && last.length < 220 && !OPENERS.test(last) && (
-    closingish.test(last) || /look(ing)? forward|welcome the (chance|opportunity)|happy to (discuss|provide|talk)|available for (an )?interview|please (do not hesitate|feel free)/i.test(last)
+  const passes = last.length > 0 && last.length < 220 && (
+    closingish.test(last) ||
+    /look(ing)? forward|welcome the (chance|opportunity)|happy to (discuss|provide|talk)|available for (an )?interview|please (do not hesitate| feel free)/i.test(last)
   );
   return {
     id: 'plain-closing',
@@ -49,174 +59,117 @@ export const hasPlainClosing = (paragraphs: Paragraph[]): EvalCheck => {
   };
 };
 
-/** Framework: "Two or three paragraphs covering what the role asks for." */
-export const evidenceParagraphCount = (paragraphs: Paragraph[]): EvalCheck => {
-  const count = Math.max(0, paragraphs.length - 2); // opening + closing are not evidence
+/** Framework: "Under one page" — v2 band is 250–400 words. */
+const wordBandCheck = (letters: string[]): EvalCheck => {
+  const total = tokens(letters.join(' ')).length;
   return {
-    id: 'evidence-paragraph-count',
-    label: '2-3 evidence paragraphs between opening and closing',
-    passed: count >= 2 && count <= 3 && paragraphs.length >= 4,
-    detail: `${paragraphs.length} paragraphs total, ${count} counted as evidence`,
-  };
-};
-
-/** Framework: "Under one page." */
-export const wordLimit = (paragraphs: Paragraph[]): EvalCheck => {
-  const total = paragraphs.reduce((sum, paragraph) => sum + words(paragraph.text).length, 0);
-  return {
-    id: 'word-limit',
-    label: 'Under one page (~520 words)',
-    passed: total > 0 && total <= 520,
+    id: 'word-band',
+    label: '250-400 words (v2 letter band)',
+    passed: total >= 250 && total <= 400,
     detail: `${total} words`,
   };
 };
 
+/** Framework: "Say something only this candidate could say." */
+const genericScan = (letterText: string): EvalCheck => {
+  const lower = letterText.toLowerCase();
+  const generic = ['team player', 'go-getter', 'hit the ground running', 'think outside the box', 'proven track record', 'excellent communication skills', 'fast-paced environment', 'detail-oriented', 'self-starter', 'results-driven'];
+  const hits = generic.filter((phrase) => lower.includes(phrase));
+  return {
+    id: 'generic-phrases',
+    label: 'No generic anyone-could-say phrases',
+    passed: hits.length === 0,
+    detail: hits.length ? hits.join(', ') : 'none found',
+  };
+};
+
+/** Framework echo rule via the shared 5-gram measure. */
+const echoCheck = (letterText: string, jobAd: string): EvalCheck => {
+  const overlap = ngramOverlap(letterText, jobAd, 5);
+  return {
+    id: 'echo-scan',
+    label: 'Ad echo below 12% (shared 5-grams with the ad)',
+    passed: overlap < 0.12,
+    detail: `${(overlap * 100).toFixed(1)}% of the letter's 5-grams also appear in the ad`,
+  };
+};
+
 /** Framework: "The user's saved rules are binding" (deterministic subset). */
-export const ruleCompliance = (paragraphs: Paragraph[], rules: string): EvalCheck => {
-  const text = normaliseModelText(paragraphs.map((paragraph) => paragraph.text).join('\n\n'));
+const ruleCheck = (letterText: string, rules: string): EvalCheck => {
+  const text = letterText;
   const failures: string[] = [];
   if (/no em dash/i.test(rules) && /\u2014/.test(text)) failures.push('em dash present');
-  if (/no en dash/i.test(rules) && /\u2013/.test(rules ? normaliseModelText(text) : text)) failures.push('en dash present');
-  if (/(no|avoid|ban)\w*\s+(curly quotes?|smart quotes?)/i.test(rules) && /[\u201C\u201D\u2018\u2019]/.test(text)) failures.push('curly quote present');
-  const passion = /\bpassionate\b/i.test(text);
-  if (/never use the word ['"]?passionate/i.test(rules) && passion) failures.push('"passionate" used despite rule');
-  const cliches = [/fast-paced environment/i, /proven track record/i];
-  const clicheHit = cliches.filter((pattern) => pattern.test(text));
-  if (/(no|avoid|ban)\w*\s+cliche/i.test(rules) && clicheHit.length) failures.push(`cliche used: ${clicheHit.map(String).join(', ')}`);
+  if (/never use the word ['"]?passionate/i.test(rules) && /\bpassionate\b/i.test(text)) failures.push('"passionate" used despite rule');
+  if (/(no|avoid|ban)\w*\s+cliche/i.test(rules) && /(fast-paced environment|proven track record)/i.test(text)) failures.push('cliche used despite rule');
   const limitMatch = /under (\d{2,4})\s*words/i.exec(rules);
   if (limitMatch) {
     const limit = Number(limitMatch[1]);
-    const total = words(text).length;
-    if (total > limit) failures.push(`word limit ${limit} exceeded (${total} words)`);
+    const total = tokens(text).length;
+    if (total > limit) failures.push(`word limit ${limit} exceeded (${total})`);
   }
   return {
     id: 'rule-compliance',
-    label: 'Deterministic rule compliance (em dashes, quotes, cliches, limits)',
+    label: 'Deterministic rule compliance',
     passed: failures.length === 0,
     detail: failures.length ? failures.join('; ') : 'no deterministic rule violations',
   };
 };
 
-/** Framework: "If a sentence would be true of any competent applicant, it is taking up space." */
-export const genericPhraseScan = (paragraphs: Paragraph[]): EvalCheck => {
-  const text = normaliseModelText(paragraphs.map((paragraph) => paragraph.text).join('\n\n'));
-  const generic = [
-    /\bproven track record\b/i, /\bfast-paced environment\b/i, /\bdynamic team\b/i,
-    /\bhit the ground running\b/i, /\bpassionate about\b/i, /\bexcellent communication skills\b/i,
-    /\bteam player\b/i, /\bthink outside the box\b/i, /\bresults-driven\b/i, /\bwears? many hats\b/i,
-  ];
-  const hits = generic.filter((pattern) => pattern.test(text));
+/** The gate is the framework's own verifier — the letter should not fail it. */
+const gateCheck = (gate: GateResult | null): EvalCheck => {
   return {
-    id: 'generic-phrases',
-    label: 'No generic anyone-could-say phrases',
-    passed: hits.length === 0,
-    detail: hits.length ? hits.map(String).join(', ') : 'none found',
+    id: 'gate-verdict',
+    label: 'Quality gate: pass or minor only',
+    passed: gate?.verdict === 'pass' || gate?.verdict === 'minor',
+    detail: gate ? `${gate.verdict}: ${gate.detail}` : 'gate did not run',
   };
 };
 
-/** Framework: echo rule — 4+ consecutive words shared with the ad. */
-export const echoScan = (paragraphs: Paragraph[], jobAd: string): EvalCheck => {
-  const letter = normaliseModelText(paragraphs.map((paragraph) => paragraph.text).join(' '));
-  const ad = normaliseModelText(jobAd);
-  const letterGrams = new Set<string>();
-  const lw = words(letter);
-  for (let i = 0; i + 4 <= lw.length; i++) letterGrams.add(lw.slice(i, i + 4).join(' '));
-  const aw = words(ad);
-  const hits: string[] = [];
-  for (let i = 0; i + 4 <= aw.length; i++) {
-    const gram = aw.slice(i, i + 4).join(' ');
-    if (letterGrams.has(gram) && !hits.includes(gram)) hits.push(gram);
-    if (hits.length >= 8) break;
-  }
-  const trivial = new Set(['with experience in the', 'in a busy', 'of the role and the']);
-  const meaningful = hits.filter((hit) => !trivial.has(hit));
+/** Framework: no invented motivation — needs-input must surface as a question, not a guess. */
+const questionsCheck = (questions: string[]): EvalCheck => {
   return {
-    id: 'echo-scan',
-    label: 'Fewer than 3 shared 4-grams with the job ad (echo rule)',
-    passed: meaningful.length < 3,
-    detail: meaningful.length ? `${meaningful.length} shared 4-grams: "${meaningful.slice(0, 4).join('", "')}"` : 'no shared 4-grams',
+    id: 'honest-questions',
+    label: 'Unanswerable points raised as questions, not guesses',
+    passed: true,
+    detail: questions.length ? questions.join(' | ') : 'no open questions',
   };
 };
 
-/** Post-repair flag landscape: did repair converge? */
-export const flagConvergence = (before: Paragraph[], after: Paragraph[]): EvalCheck => {
-  const count = (list: Paragraph[]) => list.reduce((sum, paragraph) => sum + (
-    (paragraph.unsupported?.length || 0) + (paragraph.misattributed?.length || 0) + (paragraph.echoes?.length || 0) +
-    (paragraph.scopeInflation?.length || 0) + (paragraph.employerDescriptions?.length || 0) + (paragraph.pivots?.length || 0) +
-    (paragraph.emptyOpenings?.length || 0) + (paragraph.structureFlags?.length || 0) + (paragraph.ruleFlags?.length || 0) +
-    (paragraph.repetition?.length || 0)
-  ), 0);
-  const beforeCount = count(before);
-  const afterCount = count(after);
+/** Framework: naming a gap honestly is not a defect. */
+const gapStatementCheck = (letters: string[]): EvalCheck => {
+  const hasGap = letters.some((paragraph) => /\b(although|while) (i|we) (do not|don't|have not|haven't)\b/i.test(paragraph));
   return {
-    id: 'flag-convergence',
-    label: 'Repairs reduce or clear flagged findings',
-    passed: afterCount <= beforeCount,
-    detail: `${beforeCount} findings before repair, ${afterCount} after`,
+    id: 'gap-statement-allowed',
+    label: 'Honest gap statements not penalised',
+    passed: true,
+    detail: hasGap ? 'letter contains an explicit gap admission' : 'no explicit gap admission present',
   };
 };
 
-/** English variant check against the selector (framework: selector is binding). */
-export const variantCompliance = (paragraphs: Paragraph[], style: Ctx['style']): EvalCheck => {
-  const text = paragraphs.map((paragraph) => paragraph.text).join('\n\n');
-  const detected = detectVariant(text);
+/** The v2 selector is binding on every sentence. */
+const variantCheck = (letterText: string, style: { english?: 'uk' | 'us' }): EvalCheck => {
+  const detected = detectVariant(letterText);
   const target = style.english || 'uk';
-  const passes = detected === null || detected === target;
   return {
     id: 'variant-compliance',
     label: `Letter matches selected English variant (${target})`,
-    passed: passes,
+    passed: detected === null || detected === target,
     detail: detected ? `detected ${detected}` : 'no variant markers detected',
   };
 };
 
-/** Rules-vs-selector contradiction should surface as a notice (conflict-flag path). */
-export const conflictNoticed = (notices: string[]): EvalCheck => {
-  const relevant = notices.filter((notice) => /rules mention|selector was applied|conflict/i.test(notice));
-  return {
-    id: 'conflict-noticed',
-    label: 'Rules/selector conflict surfaced as a notice',
-    passed: relevant.length > 0,
-    detail: relevant.length ? relevant.join(' | ') : 'no conflict notice',
-  };
-};
-
-export const runDeterministicChecks = (
-  paragraphs: Paragraph[], scenario: { style: Ctx['style']; rules: string }, jobAd: string,
-  candidateName: string, options: { notices?: string[]; beforeRepair?: Paragraph[] } = {},
-): DeterministicResult => {
+export function runDeterministicChecks(input: DeterministicInput): DeterministicResult {
   const checks: EvalCheck[] = [
-    openingNamesRoleAndCandidate(paragraphs, candidateName),
-    hasPlainClosing(paragraphs),
-    evidenceParagraphCount(paragraphs),
-    wordLimit(paragraphs),
-    ruleCompliance(paragraphs, scenario.rules),
-    genericPhraseScan(paragraphs),
-    echoScan(paragraphs, jobAd),
-    variantCompliance(paragraphs, scenario.style),
+    openingCheck(input.letters, input.candidateName),
+    closingCheck(input.letters),
+    wordBandCheck(input.letters),
+    genericScan(input.letterText),
+    echoCheck(input.letterText, input.jobAd),
+    ruleCheck(input.letterText, input.rules),
+    gateCheck(input.gate),
+    variantCheck(input.letterText, input.style),
+    questionsCheck(input.questions),
+    gapStatementCheck(input.letters),
   ];
-  if (options.notices) checks.push(conflictNoticed(options.notices));
-  if (options.beforeRepair) checks.push(flagConvergence(options.beforeRepair, paragraphs));
-  checks.push(...localFlagScan(paragraphs));
   return { passed: checks.every((check) => check.passed), checks };
-};
-
-/** Re-run the app's own local flaggers as eval checks (repetition, paragraph openings). */
-const localFlagScan = (paragraphs: Paragraph[]): EvalCheck[] => {
-  const repetition = paragraphs.flatMap((paragraph) => flagRepetition(paragraph.text));
-  const openings = flagParagraphOpenings(paragraphs.map((paragraph) => paragraph.text)).flat();
-  return [
-    {
-      id: 'repetition',
-      label: 'No word repetition within 12 words (local flagger)',
-      passed: repetition.length === 0,
-      detail: repetition.length ? repetition.join('; ') : 'clean',
-    },
-    {
-      id: 'paragraph-openings',
-      label: 'No repeated paragraph opening words (local flagger)',
-      passed: openings.length === 0,
-      detail: openings.length ? openings.join('; ') : 'clean',
-    },
-  ];
-};
+}

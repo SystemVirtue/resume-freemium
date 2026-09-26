@@ -8,15 +8,16 @@ export interface PersistBatch {
     label: string;
     status: string;
     error?: string;
-    requirements: string[];
-    requirementsTooThin: boolean;
-    paragraphs: unknown;
-    beforeRepair: unknown;
-    notices: string[];
+    gateVerdict: string | null;
+    planCover: number | null;
+    adEcho: number;
     deterministic: unknown;
     judge: unknown;
     agreement: unknown;
+    notices: string[];
     letterText: string;
+    stages: unknown;
+    transcript: unknown;
     durationMs: number;
     aiCalls: number;
   }[];
@@ -52,5 +53,3 @@ export async function fetchEvalRuns(): Promise<{ id: string; createdAt: string; 
   if (error || !data) return [];
   return data.map((row: any) => ({ id: row.id, createdAt: row.created_at, report: (row.report as Report) || null }));
 }
-
-export type { ScenarioResult };

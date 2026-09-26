@@ -13,6 +13,10 @@ import { persistEvalRun } from '@/lib/cover-letter-eval/persist';
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
+const GATE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  pass: 'default', minor: 'secondary', 'needs-input': 'outline', regenerate: 'destructive',
+};
+
 export const EvalLab: React.FC = () => {
   const { run, isBusy } = useAi();
   const [running, setRunning] = useState(false);
@@ -45,6 +49,7 @@ export const EvalLab: React.FC = () => {
             style: scenario.style,
             rules: scenario.rules,
             context: scenario.context,
+            appeals: scenario.appeals,
             followUp: scenario.followUp,
           },
           run,
@@ -69,10 +74,11 @@ export const EvalLab: React.FC = () => {
       const saved = await persistEvalRun({
         scenarioResults: collected.map((result) => ({
           scenarioId: result.scenarioId, label: result.label, status: result.status, error: result.error,
-          requirements: result.requirements, requirementsTooThin: result.requirementsTooThin,
-          paragraphs: result.paragraphs, beforeRepair: result.beforeRepair, notices: result.notices,
+          gateVerdict: result.gate?.verdict ?? null, planCover: result.planCover, adEcho: result.adEcho,
           deterministic: result.deterministic, judge: result.judge, agreement: result.agreement,
-          letterText: result.letterText, durationMs: result.durationMs, aiCalls: result.aiCalls,
+          notices: result.notices, letterText: result.letterText, stages: result.stages,
+          transcript: result.transcript.map((entry) => ({ label: entry.label, answer: entry.answer })),
+          durationMs: result.durationMs, aiCalls: result.aiCalls,
         })),
         report: buildReport(collected),
       });
@@ -99,7 +105,7 @@ export const EvalLab: React.FC = () => {
       <header className="border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
           <h1 className="text-xl font-bold">Cover Letter Eval Lab</h1>
-          <p className="text-sm text-muted-foreground">Unlisted self-test harness. Runs the real drafting pipeline over fixture scenarios and scores the letters against the generation framework.</p>
+          <p className="text-sm text-muted-foreground">Unlisted self-test harness. Runs the v2 pipeline (plan → draft → review → repair → validate → gate) over fixture scenarios and scores the letters against the generation framework.</p>
         </div>
       </header>
 
@@ -108,7 +114,7 @@ export const EvalLab: React.FC = () => {
           <CardHeader>
             <CardTitle className="text-base">Batch run</CardTitle>
             <CardDescription>
-              {EVAL_SCENARIOS.length} scenarios · serialized AI calls with a 400ms gap · every run is captured raw (prompts, answers, flags, judge scores) and saved to the eval table.
+              {EVAL_SCENARIOS.length} scenarios · serialized AI calls with a 400ms gap · every run is captured raw and saved to the eval table.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-3">
@@ -131,8 +137,15 @@ export const EvalLab: React.FC = () => {
               <div className="grid gap-3 sm:grid-cols-4">
                 <Stat label="Scenarios done" value={`${report.done}/${report.total}`} />
                 <Stat label="Deterministic pass" value={pct(report.deterministicPassRate)} />
-                <Stat label="Checks incomplete" value={pct(report.checksIncompleteRate)} />
-                <Stat label="Avg AI calls" value={String(report.avgAiCalls)} />
+                <Stat label="Avg plan coverage" value={report.avgPlanCover === null ? 'n/a' : pct(report.avgPlanCover)} />
+                <Stat label="Avg ad echo" value={pct(report.avgAdEcho)} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(report.gateTally).map(([verdict, count]) => (
+                  <Badge key={verdict} variant={GATE_VARIANT[verdict] || 'outline'}>{verdict}: {count}</Badge>
+                ))}
+                <Badge variant="outline">repaired: {pct(report.repairedShare)}</Badge>
+                <Badge variant="outline">avg AI calls: {report.avgAiCalls}</Badge>
               </div>
 
               <div>
@@ -160,7 +173,7 @@ export const EvalLab: React.FC = () => {
               </div>
 
               <div>
-                <h3 className="mb-2 text-sm font-medium">Checker agreement (in-app checker vs judge)</h3>
+                <h3 className="mb-2 text-sm font-medium">Checker agreement (app checks vs independent judge)</h3>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(report.agreementTally).map(([category, count]) => (
                     <Badge key={category} variant={category === 'judge-only' ? 'destructive' : category === 'checker-only' ? 'secondary' : 'default'}>
@@ -168,7 +181,7 @@ export const EvalLab: React.FC = () => {
                     </Badge>
                   ))}
                 </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">"judge-only" = the letter had issues the in-app checker missed.</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">"judge-only" = the judge found issues the app's checks missed.</p>
               </div>
             </CardContent>
           </Card>
@@ -182,12 +195,14 @@ export const EvalLab: React.FC = () => {
                 <span className="flex items-center gap-2">
                   {result.status === 'error'
                     ? <Badge variant="destructive">error</Badge>
-                    : <Badge variant={result.deterministic?.passed ? 'default' : 'destructive'}>{result.deterministic?.passed ? 'PASS' : 'FAIL'}</Badge>}
+                    : <Badge variant={GATE_VARIANT[result.gate?.verdict || ''] || 'outline'}>{result.gate?.verdict || 'no gate'}</Badge>}
                   {result.judge && <Badge variant="secondary">{result.judge.dimensions.reduce((sum, dimension) => sum + dimension.score, 0)}/{result.judge.dimensions.length * 2}</Badge>}
                   {result.agreement && <Badge variant="outline">{result.agreement.category}</Badge>}
                 </span>
               </CardTitle>
-              <CardDescription>{result.aiCalls} AI calls · {result.durationMs}ms · requirements: {result.requirementsTooThin ? 'too thin' : result.requirements.join(' | ') || 'none'}</CardDescription>
+              <CardDescription>
+                {result.aiCalls} AI calls · {result.durationMs}ms · requirements: {result.requirementsTooThin ? 'too thin' : result.requirements.join(' | ') || 'none'} · plan coverage: {result.planCover === null ? 'n/a' : pct(result.planCover)} · ad echo: {pct(result.adEcho)}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {result.status === 'error' && <p className="text-sm text-destructive">{result.error}</p>}
@@ -212,14 +227,22 @@ export const EvalLab: React.FC = () => {
                   {result.judge.notes && <p className="text-xs italic text-muted-foreground">{result.judge.notes}</p>}
                 </div>
               )}
+              {result.stages.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Stage log ({result.stages.length})</summary>
+                  <ul className="mt-2 list-disc pl-5 text-xs text-muted-foreground">{result.stages.map((stage, index) => <li key={index}>{stage.stage}: {stage.detail}</li>)}</ul>
+                </details>
+              )}
               <details>
                 <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Generated letter</summary>
                 <pre className="mt-2 whitespace-pre-wrap rounded-md bg-muted p-3 text-xs">{result.letterText || '(empty)'}</pre>
               </details>
-              <details>
-                <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Notices ({result.notices.length})</summary>
-                <ul className="mt-2 list-disc pl-5 text-xs text-muted-foreground">{result.notices.map((notice, index) => <li key={index}>{notice}</li>)}</ul>
-              </details>
+              {result.notices.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Notices ({result.notices.length})</summary>
+                  <ul className="mt-2 list-disc pl-5 text-xs text-muted-foreground">{result.notices.map((notice, index) => <li key={index}>{notice}</li>)}</ul>
+                </details>
+              )}
             </CardContent>
           </Card>
         ))}
