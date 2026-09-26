@@ -2,13 +2,23 @@ import { supabase } from '@/integrations/supabase/client';
 import { AiError, AiRequest, AiSettings, DEFAULT_MODELS } from './types';
 import { loadPuter } from './puter';
 
-async function callLovable(req: AiRequest, model: string | null): Promise<string> {
+/**
+ * Both hosted providers are called from the edge function. The workspace key and
+ * the user's own OpenRouter key stay server side, so nothing here handles a
+ * credential and nothing here can leak one.
+ */
+async function callViaFunction(
+  provider: 'lovable' | 'openrouter',
+  req: AiRequest,
+  model: string | null,
+): Promise<string> {
   const { data, error } = await supabase.functions.invoke('ai-chat', {
     body: {
+      provider,
       prompt: req.prompt,
       system: req.system,
       json: req.json ?? false,
-      model: model || DEFAULT_MODELS.lovable,
+      model: model || DEFAULT_MODELS[provider],
     },
   });
 
@@ -17,40 +27,22 @@ async function callLovable(req: AiRequest, model: string | null): Promise<string
   return data.text as string;
 }
 
-async function callOpenRouter(req: AiRequest, model: string | null, key: string | null): Promise<string> {
-  if (!key) throw new AiError('Add your OpenRouter API key to use OpenRouter models.');
-
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
-      'HTTP-Referer': window.location.origin,
-      'X-Title': 'Resume Builder',
-    },
-    body: JSON.stringify({
-      model: model || DEFAULT_MODELS.openrouter,
-      messages: [
-        ...(req.system ? [{ role: 'system', content: req.system }] : []),
-        { role: 'user', content: req.prompt },
-      ],
-      ...(req.json ? { response_format: { type: 'json_object' } } : {}),
-    }),
+/** Store or clear the user's OpenRouter key. Sending it is the last the browser sees of it. */
+export async function saveOpenRouterKey(key: string | null): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke('ai-chat', {
+    body: { action: 'save-openrouter-key', key: key || '' },
   });
-
-  if (!res.ok) {
-    const body = await res.text();
-    if (res.status === 401) throw new AiError('That OpenRouter key was rejected. Check it and try again.');
-    if (res.status === 429) throw new AiError('OpenRouter is rate limiting the free model. Wait a moment and retry.');
-    throw new AiError(`OpenRouter error (${res.status}): ${body.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-  const text = data?.choices?.[0]?.message?.content;
-  if (!text) throw new AiError('OpenRouter returned an empty answer.');
-  return text as string;
+  if (error) throw new AiError(error.message || 'That key could not be saved.');
+  if (data?.error) throw new AiError(data.error);
+  return Boolean(data?.set);
 }
 
+/**
+ * Puter's free tier is a browser SDK that signs the user into their own puter.com
+ * account in a popup. There is no app credential to expose, so it is the one
+ * provider that cannot be moved behind the edge function — the user's own session
+ * authorises the call.
+ */
 async function callPuter(req: AiRequest, model: string | null): Promise<string> {
   const puter = await loadPuter();
   if (!puter.auth.isSignedIn()) {
@@ -75,11 +67,11 @@ async function callPuter(req: AiRequest, model: string | null): Promise<string> 
 export async function callAi(settings: AiSettings, req: AiRequest): Promise<string> {
   switch (settings.provider) {
     case 'openrouter':
-      return callOpenRouter(req, settings.model, settings.openRouterKey);
+      return callViaFunction('openrouter', req, settings.model);
     case 'puter':
       return callPuter(req, settings.model);
     default:
-      return callLovable(req, settings.model);
+      return callViaFunction('lovable', req, settings.model);
   }
 }
 

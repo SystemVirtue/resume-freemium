@@ -3,7 +3,12 @@ export type AiProviderId = 'lovable' | 'openrouter' | 'puter';
 export interface AiSettings {
   provider: AiProviderId;
   model: string | null;
-  openRouterKey: string | null;
+  /**
+   * Whether the user has an OpenRouter key stored server side. The key itself is
+   * never held in the browser: it is written once and read only by the edge
+   * function.
+   */
+  openRouterKeySet: boolean;
 }
 
 export interface AiRequest {

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Download, Eye } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-// @ts-ignore
+// html2pdf.js ships no declarations, and this project does not require them.
 import html2pdf from 'html2pdf.js';
 
 interface ResumeData {
