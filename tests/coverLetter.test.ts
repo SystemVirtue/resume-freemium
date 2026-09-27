@@ -226,6 +226,17 @@ describe('post-generation passes', () => {
     expect(flags.some((f) => f.includes('sentences start with "i"'))).toBe(true);
   });
 
+  it('does not flag first-person sentences that are spread through the letter', () => {
+    // A cover letter is written in the first person, so scattered "I" openings
+    // are the register, not a tic. Only consecutive runs are worth a flag.
+    const flags = flagRepetition(
+      'I led the redesign of a permit service. Twelve councils adopted it. ' +
+        'I presented the research to a committee. They asked about cost. ' +
+        'I mentor two designers now. The work is quieter than it was.',
+    );
+    expect(flags.some((f) => f.includes('sentences start with'))).toBe(false);
+  });
+
   it('flags paragraphs that open the same way, counting each pair once', () => {
     const flags = flagParagraphOpenings(['Leading a team taught me.', 'Leading a project taught me.']);
     expect(flags[0]).toEqual([]);

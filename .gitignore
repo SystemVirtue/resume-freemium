@@ -26,3 +26,12 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+*.tsbuildinfo
+
+# Eval reports are per-run artifacts. The letters that go into them
+# (eval-reviews/) are kept, since those are the thing worth re-measuring.
+eval-reports/
+
+# The grown corpus is a build product of scripts/mutate-corpus.ts. Checking 180
+# cases of derived text in would mean reviewing it by hand, which nobody does.
+eval-corpus/

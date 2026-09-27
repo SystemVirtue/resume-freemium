@@ -15,12 +15,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { CORPUS, type CorpusCase } from './corpus/cases';
-import { measure, planCoverage, GENERIC, type Sample } from '../scripts/eval-corpus';
+import { measure, planCoverage, GENERIC, adEcho, type Sample } from '../scripts/eval-corpus';
 import type { EvidenceMap } from '@/lib/coverLetterPlan';
 import { corpusById } from './corpus/cases';
 import { qualityGate } from '@/lib/coverLetterGate';
 import { FAILURE_CODES, type Critique, type FailureCode } from '@/lib/coverLetterCritic';
-import { normaliseModelText, type Paragraph } from '@/lib/coverLetter';
+import { normaliseModelText, flagRepetition, type Paragraph } from '@/lib/coverLetter';
 
 const corpusCase = CORPUS.find((c) => c.id === 'technical') as CorpusCase;
 
@@ -338,5 +338,48 @@ describe('the gate agrees with the yardstick', () => {
     });
     expect(gate.verdict).not.toBe('pass');
     expect(gate.reasons.join(' ').toLowerCase()).toContain('resume');
+  });
+});
+
+/**
+ * The three instrument fixes the 27 September review turned up, each held here
+ * so a later change cannot quietly put the fault back. They are cases about the
+ * yardstick rather than the letters, which is why they sit apart from the rest.
+ */
+describe('instrument fixes', () => {
+  it('charges for a word repeated in one breath, not one used again two paragraphs on', () => {
+    const near = 'I designed the migration. I reviewed the schema and I designed the cutover with the team.';
+    const far =
+      'I designed the migration of forty endpoints from a monolith. It was the largest piece of work ' +
+      'I have owned here, and it taught me more about sequencing than anything since. ' +
+      'I design for the failure case first.';
+    expect(flagRepetition(near).some((f) => f.includes('designed'))).toBe(true);
+    expect(flagRepetition(far).some((f) => f.includes('designed'))).toBe(false);
+  });
+
+  it('does not charge a thin-ad letter for being short enough not to be padded', () => {
+    // Between the thin floor and the normal one, so the band is the only thing
+    // that can decide it.
+    const parts: string[] = [];
+    for (let i = 0; i < 11; i++) parts.push(`I worked on part ${i + 1} of the project and it went well.`);
+    const letter = parts.join(' ');
+    const base = { mode: 'pipeline' as const, letter, verdict: null, failures: {}, questions: 0, repaired: false };
+    const thin = { ...base, caseId: 'thin', c: { ...corpusCase, expectations: { tooThin: true } } };
+    const normal = { ...base, caseId: 'technical', c: corpusCase };
+    expect(measure(thin).lengthOk).toBe(true);
+    expect(measure(normal).lengthOk).toBe(false);
+  });
+
+  it('charges for restating the advert but not for attributing it', () => {
+    // The advert that says this outright, so the quoted span is real text.
+    const ad = (CORPUS.find((c) => c.id === 'missing-info') as CorpusCase).job;
+    const restated =
+      "You are not looking for someone who supported someone else's accounts, and I want to be " +
+      'straight with you about which half of that I meet.';
+    const attributed =
+      'You wrote that you are "not looking for someone who supported someone else accounts", and I ' +
+      'want to be straight with you about which half of that I meet.';
+    expect(adEcho(restated, ad)).toBeGreaterThan(0);
+    expect(adEcho(attributed, ad)).toBe(0);
   });
 });

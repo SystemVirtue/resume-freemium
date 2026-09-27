@@ -953,31 +953,49 @@ export function flagRepetition(text: string): string[] {
   const clean = normaliseModelText(text || '');
   if (!clean.trim()) return flags;
 
-  // Words repeated within ~40 words of each other.
+  // Words repeated within a short distance of each other. The window is about
+  // a sentence and a half: wide enough to be real prose, tight enough to mean
+  // the model said the same thing twice in one breath. At 40 words it spanned a
+  // paragraph and a half, which flagged ordinary vocabulary reused across
+  // paragraphs — "four years", "six accounts", "whether" — and charged every
+  // letter for writing about its own subject twice.
   const words = clean.toLowerCase().match(/[a-z']+/g) || [];
   const lastSeen = new Map<string, number>();
   const repeats = new Set<string>();
   words.forEach((w, i) => {
     if (w.length < 4 || REPETITION_STOP.has(w)) return;
     const prev = lastSeen.get(w);
-    if (prev !== undefined && i - prev <= 40) repeats.add(w);
+    if (prev !== undefined && i - prev <= 20) repeats.add(w);
     lastSeen.set(w, i);
   });
   for (const w of Array.from(repeats).slice(0, 3)) {
     flags.push(`"${w}" repeats within a few words`);
   }
 
-  // Sentences that open with the same word.
+  // Sentences that open with the same word, counted as runs rather than as a
+  // total for the whole letter. Three in a row is a tic worth flagging; a
+  // letter that opens sentences with "I" throughout is simply written in the
+  // first person, which is most of what a cover letter has to do. Counting the
+  // total flagged every competent letter and charged them all for it.
   const sentences = clean.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
-  const firstWords = new Map<string, number>();
-  for (const s of sentences) {
-    const opening = (s.match(/^[A-Za-z']+/) || [''])[0].toLowerCase();
-    // "I" counts: a run of sentences starting with it is exactly what to catch.
-    if (!opening) continue;
-    firstWords.set(opening, (firstWords.get(opening) || 0) + 1);
+  const openings = sentences.map(
+    (s) => (s.match(/^[A-Za-z']+/) || [''])[0].toLowerCase(),
+  );
+  const runs: Array<{ word: string; length: number }> = [];
+  let runWord = '';
+  let runLength = 0;
+  for (const opening of openings) {
+    if (opening && opening === runWord) {
+      runLength += 1;
+      continue;
+    }
+    if (runLength >= 3) runs.push({ word: runWord, length: runLength });
+    runWord = opening;
+    runLength = opening ? 1 : 0;
   }
-  for (const [w, n] of firstWords) {
-    if (n >= 3) flags.push(`${n} sentences start with "${w}"`);
+  if (runLength >= 3) runs.push({ word: runWord, length: runLength });
+  for (const run of runs) {
+    flags.push(`${run.length} consecutive sentences start with "${run.word}"`);
   }
   return flags.slice(0, 4);
 }

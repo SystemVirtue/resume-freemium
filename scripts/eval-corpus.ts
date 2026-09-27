@@ -9,17 +9,44 @@
  *
  *   npm run eval
  *
- * The key is read from OPENROUTER_API_KEY, or from .env.local / .env if it is
- * not already set in the environment (an existing variable always wins).
+ * Testing runs dev-side, against whichever free model is pointed at here. It
+ * never calls the Lovable AI the product itself uses, so a test run cannot eat
+ * the product's rate limit, and every run records which endpoint and which
+ * model produced its numbers.
+ *
+ * The endpoint is any OpenAI-compatible chat completions API. The key is read
+ * from EVAL_API_KEY, falling back to OPENROUTER_API_KEY, and from .env.local /
+ * .env if it is not already in the environment (an existing variable always
+ * wins). A model running on the developer's own machine needs no key at all.
  *
  * Environment:
+ *   EVAL_BASE_URL  OpenAI-compatible base URL (default the OpenRouter API)
+ *                  a local model: EVAL_BASE_URL=http://localhost:11434/v1
+ *   EVAL_API_KEY   key for that endpoint; omit it for a local model
+ *   EVAL_MODEL     model slug (default a free OpenRouter model; required in
+ *                  practice for any other endpoint)
+ *   EVAL_RETRIES   attempts per call before giving up (default 5)
+ *   EVAL_CONCURRENCY  generations in flight at once (default 1, which is the
+ *                  polite setting for a per-minute free tier)
+ *   EVAL_JSON_MODE 1 to ask for JSON-object responses, 0 for local servers
+ *                  that reject the parameter (default 1)
+ *   EVAL_SPLIT     dev | holdout | all (default all). The holdout is the half
+ *                  fixes must not be written against; membership is a hash of
+ *                  the case id, so it cannot drift. See splitOf.
+ *   EVAL_CORPUS    JSON array of cases, for a corpus grown outside the
+ *                  fixture the unit tests treat as a contract
+ *   EVAL_BASELINE  a previous report to difference this run against
+ *   EVAL_OUT       directory to write the JSON and Markdown report to
+ *   EVAL_LETTERS   file of letters written outside this process, keyed by
+ *                  corpus id, scored by the same instrument without any model
+ *                  call: see runImported
+ *   EVAL_CASSETTE  file of recorded answers, for a run with no network at all
  *   EVAL_MODE      legacy | prompt | pipeline | both   (default both)
  *                  legacy   the pre-v2 prompt, read from git
  *                  prompt   the current v2 prompt, no planning or review
  *                  pipeline the staged pipeline: plan → draft → review → repair
  *                           → validate → gate
  *   EVAL_REPEATS   generations per case (default 1; use 3 for a variance read)
- *   EVAL_MODEL     model slug (default a free OpenRouter model)
  *   EVAL_REF       git revision the legacy prompt is read from (default 201ac08)
  *   EVAL_IDS       comma-separated corpus ids, for a quick pass
  *   EVAL_VERBOSE   set to 1 to print every generation's numbers
@@ -30,7 +57,8 @@
  * better, and its spread across repeats is the number this file exists to watch.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   Ctx,
   GROUNDING_SYSTEM,
@@ -86,7 +114,17 @@ function loadEnvFiles() {
 }
 loadEnvFiles();
 
-const API_KEY = process.env.OPENROUTER_API_KEY || '';
+/**
+ * The endpoint under test. Any OpenAI-compatible chat completions API works,
+ * and that is the whole point: a free hosted model, or a local Ollama or
+ * llama.cpp server on the developer's own machine, and the same pipeline is
+ * measured either way. Nothing in this file reaches the Lovable AI the product
+ * uses, so a test run cannot spend the product's rate limit.
+ */
+const BASE_URL = (process.env.EVAL_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+const API_KEY = process.env.EVAL_API_KEY || process.env.OPENROUTER_API_KEY || '';
+/** A local server is the one endpoint for which "no key" is correct, not a mistake. */
+const NEEDS_KEY = !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/.test(BASE_URL);
 
 /**
  * A cassette stands in for the model: a file of answers, keyed by case and stage.
@@ -116,15 +154,17 @@ function cassette(): Record<string, unknown> | null {
     process.exit(1);
   }
 }
-const MODEL = process.env.EVAL_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
+const MODEL =
+  process.env.EVAL_MODEL ||
+  (BASE_URL.includes('openrouter.ai') ? 'meta-llama/llama-3.3-70b-instruct:free' : 'set-EVAL_MODEL');
+const RETRIES = Math.max(1, Number(process.env.EVAL_RETRIES || 5));
+const CONCURRENCY = Math.max(1, Number(process.env.EVAL_CONCURRENCY || 1));
+const JSON_MODE = (process.env.EVAL_JSON_MODE || '1') !== '0';
+const LETTERS = process.env.EVAL_LETTERS || '';
 const LEGACY_REF = process.env.EVAL_REF || '201ac08';
 const MODE = (process.env.EVAL_MODE || 'both').toLowerCase();
 const REPEATS = Math.max(1, Number(process.env.EVAL_REPEATS || 1));
 const VERBOSE = process.env.EVAL_VERBOSE === '1';
-const ONLY = (process.env.EVAL_IDS || '')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
 
 export const GENERIC = [
   'team player',
@@ -139,7 +179,50 @@ export const GENERIC = [
   'results-driven',
 ];
 
-export type Mode = 'legacy' | 'prompt' | 'pipeline';
+export type Mode = 'legacy' | 'prompt' | 'pipeline' | 'letters';
+
+/**
+ * Letters written outside this process, keyed by corpus id.
+ *
+ * The point of the mode is to separate who writes a letter from how it is
+ * measured. A person, a local model, or an agent working in this repository can
+ * all drop letters into a file, and the same instrument scores them as it scores
+ * a live run. Without it, the only way to get a letter measured is for this
+ * script to call a model itself, which quietly turns "is this prompt any good?"
+ * into "is this prompt as good as whatever model I happened to have a key for?".
+ *
+ * The shape is a JSON object of case id to letter text, or to { letter }:
+ *
+ *   { "junior": "Dear ...", "technical": { "letter": "Dear ..." } }
+ */
+let loadedLetters: Record<string, string> | null = null;
+
+function importedLetters(): Record<string, string> | null {
+  if (loadedLetters) return loadedLetters;
+  if (!LETTERS) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(LETTERS, 'utf8'));
+  } catch (err: any) {
+    console.error(`Could not read the letters file at ${LETTERS}: ${err?.message}`);
+    process.exit(1);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    console.error(`${LETTERS} is not a JSON object of corpus id to letter.`);
+    process.exit(1);
+  }
+  const letters: Record<string, string> = {};
+  for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+    const letter = typeof value === 'string' ? value : (value as { letter?: unknown })?.letter;
+    if (typeof letter !== 'string' || !letter.trim()) {
+      console.error(`The entry for "${id}" has no letter text.`);
+      process.exit(1);
+    }
+    letters[id] = letter.trim();
+  }
+  loadedLetters = letters;
+  return letters;
+}
 
 /** The legacy prompt is read from git rather than kept as a drifting copy. */
 function legacyPrompt(): string | null {
@@ -188,25 +271,63 @@ async function ask(system: string, prompt: string, key: string): Promise<string>
     /** Structured answers are written as JSON in the file; the stage reads text. */
     return typeof answer === 'string' ? answer : JSON.stringify(answer);
   }
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${API_KEY}`,
-      'X-Title': 'JobGoblin corpus',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: prompt },
-      ],
-      response_format: { type: 'json_object' },
-    }),
-  });
-  if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content || '';
+  let last = 'no attempt made';
+  for (let attempt = 1; ; attempt++) {
+    let retryable = true;
+    let asked = '';
+    try {
+      const res = await fetch(`${BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+          'X-Title': 'JobGoblin corpus',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: prompt },
+          ],
+          ...(JSON_MODE ? { response_format: { type: 'json_object' } } : {}),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data?.choices?.[0]?.message?.content || '';
+      }
+      // A 429 or a 5xx is the endpoint asking for patience, not a verdict on
+      // the prompt, so it is worth waiting out. A 4xx is a real answer — a bad
+      // key, an unknown model — and retrying it just spends the run's budget.
+      asked = res.headers.get('retry-after') || '';
+      const detail = (await res.text()).slice(0, 200);
+      retryable = res.status === 429 || res.status >= 500;
+      last = `${BASE_URL} ${res.status}${detail ? `: ${detail}` : ''}`;
+    } catch (err: any) {
+      last = err?.message || String(err);
+    }
+    if (!retryable || attempt >= RETRIES) throw new Error(last);
+    const wait = backoff(attempt, asked);
+    console.log(
+      `  ${key}: ${last.slice(0, 100)}\n  waiting ${(wait / 1000).toFixed(1)}s, ` +
+        `attempt ${attempt + 1} of ${RETRIES}`,
+    );
+    await sleep(wait);
+  }
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Exponential backoff with equal jitter, deferring to Retry-After when the
+ * endpoint sets one. The fixed half matters: pure jitter can pick a wait of
+ * nearly zero, which turns a rate limit into a tight retry loop.
+ */
+function backoff(attempt: number, retryAfter?: string) {
+  const asked = Number(retryAfter);
+  if (Number.isFinite(asked) && asked > 0) return Math.min(asked * 1000, 60_000);
+  const ceiling = Math.min(30_000, 1000 * 2 ** (attempt - 1));
+  return ceiling / 2 + Math.random() * (ceiling / 2);
 }
 
 function json<T>(raw: string): T | null {
@@ -245,7 +366,40 @@ export interface Sample {
 }
 
 /** The 5-gram overlap between the letter and the ad, as a share of the letter. */
-const adEcho = (letter: string, job: string) => ngramOverlap(letter, job, 5);
+/**
+ * Text the letter puts in double quotation marks, removed.
+ *
+ * Ad echo exists to catch a letter that parrots the advert into mush. It has no
+ * business catching a letter that quotes the advert back in order to accept or
+ * refuse it: "you asked for X, and here is what I can say about X" is the
+ * load-bearing sentence of a refusal, and it overlaps the ad by definition. Only
+ * double quotes are stripped — an apostrophe cannot be told from an opening
+ * single quote, and "don't" is not a quotation.
+ *
+ * The CV is not treated this way. Quoting a job advert is attribution; quoting
+ * one's own CV is lifting phrasing, which is the unoriginality that echo is
+ * meant to catch.
+ */
+const unquoted = (text: string) => text.replace(/"[^"]*"/g, ' ');
+
+/**
+ * Exported so the quoted-span exemption can be calibrated in the tests: the
+ * difference between restating the advert and attributing it is the whole
+ * behaviour, and it is invisible unless you can call this directly.
+ */
+export const adEcho = (letter: string, job: string) => ngramOverlap(unquoted(letter), job, 5);
+
+/**
+ * The word band a letter has to land in.
+ *
+ * A thin advert is the exception, and the exception is the point. There are no
+ * requirements to answer in four sentences of boilerplate, so a letter that
+ * reaches 250 words has padded — which is the fault the case exists to catch. So
+ * the floor drops for those cases and the ceiling barely moves: the letter still
+ * has to be a letter, just not a padded one.
+ */
+const wordBand = (c: CorpusCase) =>
+  c.expectations.tooThin ? { minWords: 120, maxWords: 320 } : { minWords: 250, maxWords: 400 };
 
 /**
  * Words too common to be evidence that a letter drew on one particular piece of
@@ -468,8 +622,7 @@ async function scoreLetter(input: {
     critique: input.critique,
     openQuestions: input.openQuestions || [],
     resume: input.c.resume,
-    minWords: 250,
-    maxWords: 400,
+    ...wordBand(input.c),
   });
 
   return measure({
@@ -629,7 +782,7 @@ export function measure(input: {
     mode: input.mode,
     ok: true,
     words,
-    lengthOk: words >= 250 && words <= 400,
+    lengthOk: words >= wordBand(c).minWords && words <= wordBand(c).maxWords,
     adEcho: adEcho(letter, c.job),
     resumeEcho: ngramOverlap(letter, c.resume, 5),
     generic: GENERIC.filter((g) => lower.includes(g)).length,
@@ -726,22 +879,322 @@ function summarise(samples: Sample[], label: string) {
   );
 }
 
-async function main() {
-  if (!API_KEY && !cassette()) {
-    console.error(
-      'Set OPENROUTER_API_KEY, or put it in .env.local, to run the live corpus against a real model.',
+/**
+ * One cheap call before the corpus. A dead endpoint, a rejected key or an
+ * unknown model should be one clear line, not the same failure repeated once
+ * per case until a misconfiguration looks like a pipeline fault.
+ */
+async function reachable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 4,
+      }),
+    });
+    if (res.ok) return true;
+    console.error(`${BASE_URL} answered ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (res.status === 401 || res.status === 403) {
+      console.error('That reads as a rejected key. Check EVAL_API_KEY.');
+    } else if (res.status === 404) {
+      console.error(
+        'That reads as a wrong base URL or an unknown model. Check EVAL_BASE_URL and EVAL_MODEL.',
+      );
+    }
+    return false;
+  } catch (err: any) {
+    console.error(`Could not reach ${BASE_URL}: ${err?.message || err}`);
+    if (!NEEDS_KEY) console.error('A local model was expected. Check the server and EVAL_BASE_URL.');
+    return false;
+  }
+}
+
+/**
+ * The run as a dev-side artifact: JSON to diff against the last run, Markdown
+ * to read. A run leaves a file behind and nothing else — which is the point of
+ * testing dev-side rather than in the browser.
+ */
+function writeReport(samples: Sample[], meta: Record<string, unknown>) {
+  const dir = process.env.EVAL_OUT;
+  if (!dir) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const rows = [...new Set(samples.map((s) => s.mode))].map((mode) => {
+    const of = samples.filter((s) => s.mode === mode && s.ok);
+    return {
+      mode,
+      letters: of.length,
+      penalty: stats(of.map((s) => s.penalty)),
+      words: stats(of.map((s) => s.words)),
+    };
+  });
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `eval-${stamp}.json`), JSON.stringify({ ...meta, samples }, null, 2));
+    writeFileSync(
+      join(dir, `eval-${stamp}.md`),
+      [
+        `# Eval run ${stamp}`,
+        '',
+        `Endpoint: ${meta.endpoint}  ·  Model: ${meta.model}  ·  Repeats: ${meta.repeats}`,
+        '',
+        '| mode | letters | penalty mean / min / max / sd | words mean / min / max / sd |',
+        '| --- | --- | --- | --- |',
+        ...rows.map((r) => `| ${r.mode} | ${r.letters} | ${fmt(r.penalty)} | ${fmt(r.words, 0)} |`),
+        '',
+        `Failed generations: ${samples.filter((s) => !s.ok).length}`,
+        '',
+      ].join('\n'),
     );
-    console.error('Or point EVAL_CASSETTE at a file of answers to run the stages offline.');
-    console.error('The measuring half needs no key at all: npm test covers it.');
+    console.log(`\nReport written to ${dir}/eval-${stamp}.json and .md`);
+  } catch (err: any) {
+    console.error(`Could not write the report to ${dir}: ${err?.message || err}`);
+  }
+}
+
+/**
+ * Score letters that were written elsewhere, calling no model.
+ *
+ * The honest limit: without a validator in the loop there is nothing to trace a
+ * claim back to the CV, so the grounded codes — UNSUPPORTED_CLAIM,
+ * MISATTRIBUTED_FACT, OVERCLAIMING — stay at zero here. What is reported is the
+ * half of the instrument that needs no model: length, ad echo, resume echo,
+ * genericity, repetition, forbidden words, and the gate's structural verdicts.
+ * That gap is stated in the output rather than averaged in silently, because a
+ * zero penalty here means "not measured", not "nothing wrong".
+ */
+function runImported(letters: Record<string, string>): Sample[] {
+  const samples: Sample[] = [];
+  for (const [id, letter] of Object.entries(letters)) {
+    const c = activeCorpus().find((x) => x.id === id);
+    if (!c) {
+      console.log(`${id}: no corpus case with that id, skipped.`);
+      continue;
+    }
+    const paragraphs = split(letter).map((text, i) => paragraph(text, i));
+    const gate = qualityGate({
+      paragraphs,
+      critique: null,
+      openQuestions: [],
+      resume: c.resume,
+      ...wordBand(c),
+    });
+    samples.push(
+      measure({
+        caseId: c.id,
+        mode: 'letters',
+        letter,
+        c,
+        verdict: gate.verdict,
+        failures: gate.failures,
+        questions: 0,
+        repaired: false,
+        planCover: null,
+      }),
+    );
+  }
+  return samples;
+}
+
+/* ------------------------------------------------------------------ *
+ * The loop: a corpus that can grow, a holdout, and a baseline to beat  *
+ * ------------------------------------------------------------------ */
+
+/**
+ * A corpus read from a file, so cases can be added without editing the fixture
+ * the tests import. The built-in corpus stays the default and stays tested;
+ * this is for the generated bulk that a self-improving loop needs, which does
+ * not belong in a file the unit tests treat as a contract.
+ */
+let loadedCorpus: CorpusCase[] | null = null;
+
+function activeCorpus(): CorpusCase[] {
+  const path = process.env.EVAL_CORPUS || '';
+  if (!path) return CORPUS;
+  if (loadedCorpus) return loadedCorpus;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err: any) {
+    console.error(`Could not read the corpus at ${path}: ${err?.message}`);
     process.exit(1);
   }
+  if (!Array.isArray(parsed)) {
+    console.error(`${path} is not a JSON array of cases.`);
+    process.exit(1);
+  }
+  const cases = parsed as CorpusCase[];
+  for (const c of cases) {
+    if (!c.id || !c.resume || !c.job) {
+      console.error(`A case in ${path} is missing an id, a resume or a job ad.`);
+      process.exit(1);
+    }
+  }
+  loadedCorpus = cases;
+  return cases;
+}
+
+/**
+ * Which half of the corpus a case belongs to, fixed by its id.
+ *
+ * The holdout is the half that fixes are not allowed to be written against. It
+ * only means anything if it stays put, so the assignment is a hash of the id
+ * rather than an argument, an environment variable, or a reshuffle: all three
+ * make it easy to drift a case from holdout to dev after looking at its score,
+ * which is the ordinary way a test set quietly becomes a training set.
+ */
+function splitOf(id: string): 'dev' | 'holdout' {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % 100 < 20 ? 'holdout' : 'dev';
+}
+
+function selectCases(): CorpusCase[] {
+  const split = (process.env.EVAL_SPLIT || 'all').toLowerCase();
+  const only = (process.env.EVAL_IDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  let cases = activeCorpus();
+  if (only.length) cases = cases.filter((c) => only.includes(c.id));
+  if (split === 'dev' || split === 'holdout') {
+    cases = cases.filter((c) => splitOf(c.id) === split);
+  }
+  if (!cases.length) {
+    console.error(`No cases in the ${split} split.`);
+    process.exit(1);
+  }
+  return cases;
+}
+
+/** Print the split, because a holdout nobody can see is a holdout nobody trusts. */
+function announceSplit(cases: CorpusCase[]) {
+  const split = (process.env.EVAL_SPLIT || 'all').toLowerCase();
+  if (split === 'all') return;
+  const dev = cases.filter((c) => splitOf(c.id) === 'dev').map((c) => c.id);
+  const held = cases.filter((c) => splitOf(c.id) === 'holdout').map((c) => c.id);
+  console.log(`Split: ${split} (${cases.length} cases)`);
+  if (split === 'holdout') console.log(`Holdout: ${held.join(', ')}`);
+  if (split === 'dev') console.log(`Dev, for contrast: ${dev.join(', ')}`);
+}
+
+/**
+ * Compare this run against a previous report. The loop is only a loop if a run
+ * can be said to have improved, and "improved" has to mean a named number moved
+ * in the right direction without another one moving the wrong way. Deltas are
+ * printed per failure code rather than only in the penalty total, because the
+ * total can fall while the fault the fix was aimed at is merely displaced.
+ */
+function compareToBaseline(samples: Sample[]) {
+  const path = process.env.EVAL_BASELINE || '';
+  if (!path) return;
+  let before: { samples: Sample[] };
+  try {
+    before = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err: any) {
+    console.error(`Could not read the baseline at ${path}: ${err?.message}`);
+    process.exit(1);
+  }
+  const prior = (before.samples || []).filter((s) => s.ok);
+  const now = samples.filter((s) => s.ok);
+  if (!prior.length || !now.length) {
+    console.error('The baseline or this run has no successful generations to compare.');
+    return;
+  }
+
+  const rate = (rows: Sample[], code: FailureCode) =>
+    rows.reduce((sum, s) => sum + (s.failures?.[code] || 0), 0) / rows.length;
+  const codes = [...new Set([...prior, ...now].flatMap((s) => Object.keys(s.failures || {})))]
+    .filter((c): c is FailureCode => !!c)
+    .sort();
+
+  const line = (name: string, was: number, is: number, better: 'down' | 'up', unit = '') => {
+    const delta = is - was;
+    const good = better === 'down' ? delta < 0 : delta > 0;
+    const flat = Math.abs(delta) < 1e-9;
+    const mark = flat ? '  =  ' : good ? ' better' : ' WORSE';
+    const d = `${delta > 0 ? '+' : ''}${delta.toFixed(2)}`;
+    console.log(
+      `  ${pad(name, 26)} ${was.toFixed(2)}${unit} -> ${is.toFixed(2)}${unit}  ${d.padStart(7)}${mark}`,
+    );
+  };
+
+  console.log(`\nAgainst baseline ${path} (${prior.length} -> ${now.length} letters):`);
+  line('mean penalty', stats(prior.map((s) => s.penalty)).mean, stats(now.map((s) => s.penalty)).mean, 'down');
+  line('worst penalty', stats(prior.map((s) => s.penalty)).max, stats(now.map((s) => s.penalty)).max, 'down');
+  line('length in band', (prior.filter((s) => s.lengthOk).length / prior.length) * 100, (now.filter((s) => s.lengthOk).length / now.length) * 100, 'up', '%');
+  line('ad echo', stats(prior.map((s) => s.adEcho)).mean, stats(now.map((s) => s.adEcho)).mean, 'down');
+  line('resume echo', stats(prior.map((s) => s.resumeEcho)).mean, stats(now.map((s) => s.resumeEcho)).mean, 'down');
+  line('repetition flags', stats(prior.map((s) => s.repetition)).mean, stats(now.map((s) => s.repetition)).mean, 'down');
+  for (const code of codes) line(`${code} per letter`, rate(prior, code), rate(now, code), 'down');
+  console.log(
+    '  A fix that lowers the total while raising a code has moved the fault, not removed it.',
+  );
+}
+
+async function main() {
+  if (!API_KEY && !cassette() && !importedLetters() && NEEDS_KEY) {
+    console.error(`No key for ${BASE_URL}.`);
+    console.error('  a free hosted model: set EVAL_API_KEY, or OPENROUTER_API_KEY, in .env.local');
+    console.error('  a model on this machine (free, unmetered, no key):');
+    console.error('    ollama pull llama3.1:8b');
+    console.error('    EVAL_BASE_URL=http://localhost:11434/v1 EVAL_MODEL=llama3.1:8b npm run eval');
+    console.error('  no network at all: point EVAL_CASSETTE at a file of recorded answers');
+    console.error('The measuring half needs no key and no model: npm test covers it.');
+    process.exit(1);
+  }
+  if (importedLetters()) {
+    const split = (process.env.EVAL_SPLIT || 'all').toLowerCase();
+    const all = importedLetters()!;
+    const letters =
+      split === 'dev' || split === 'holdout'
+        ? Object.fromEntries(
+            Object.entries(all).filter(([id]) => splitOf(id) === split),
+          )
+        : all;
+    if (!Object.keys(letters).length) {
+      console.error(`None of the supplied letters fall in the ${split} split.`);
+      process.exit(1);
+    }
+    console.log(`Letters: ${LETTERS} — ${Object.keys(letters).length} written outside this process.`);
+    announceSplit(Object.keys(letters).map((id) => ({ id } as CorpusCase)));
+    console.log(
+      'No model is called, so the claim-grounding codes stay at zero: not measured, not clean.',
+    );
+    const samples = runImported(letters);
+    summarise(samples, `Imported letters (${samples.length})`);
+    compareToBaseline(samples);
+    writeReport(samples, {
+      at: new Date().toISOString(),
+      endpoint: `letters:${LETTERS}`,
+      model: 'external',
+      modes: ['letters'],
+      cases: samples.length,
+      repeats: 1,
+      concurrency: 1,
+    });
+    console.log(
+      '\nRead the spread, not the best number: the target is a lower sd and a lower worst case.',
+    );
+    return;
+  }
+
   const legacy = MODE === 'legacy' || MODE === 'both' ? legacyPrompt() : null;
   if ((MODE === 'legacy' || MODE === 'both') && !legacy) {
     console.error(`Could not read the legacy prompt from git ref ${LEGACY_REF}.`);
     process.exit(1);
   }
 
-  const cases = ONLY.length ? CORPUS.filter((c) => ONLY.includes(c.id)) : CORPUS;
+  const cases = selectCases();
+  announceSplit(cases);
   const modes: Mode[] =
     MODE === 'both'
       ? ['legacy', 'pipeline']
@@ -755,7 +1208,9 @@ async function main() {
     console.log(`Model: cassette at ${process.env.EVAL_CASSETTE} — answers written by hand, not a live model.`);
     console.log('A cassette reports a level, not a spread: the same answer replays every time.');
   } else {
-    console.log(`Model: ${MODEL}`);
+    console.log(`Endpoint: ${BASE_URL}`);
+    console.log(`Model: ${MODEL}   key: ${API_KEY ? 'set' : 'not needed'}   in flight: ${CONCURRENCY}`);
+    if (!await reachable()) process.exit(1);
   }
   console.log(`Cases: ${cases.length}   Repeats: ${REPEATS}   Modes: ${modes.join(', ')}`);
   if (REPEATS === 1 && !cassette()) {
@@ -763,49 +1218,66 @@ async function main() {
   }
 
   const samples: Sample[] = [];
+  // The work list is built up front so the pool below can hand out jobs and
+  // keep every slot busy. With the default concurrency of 1 this is the same
+  // sequential run as before; raising it trades rate-limit patience for
+  // wall-clock, which is the trade a free per-minute tier forces.
+  const jobs: Array<{ c: CorpusCase; run: number; mode: Mode }> = [];
   for (const c of cases) {
     for (let run = 1; run <= REPEATS; run++) {
-      for (const mode of modes) {
-        try {
-          const sample =
-            mode === 'legacy'
-              ? await runLegacy(c, legacy!)
-              : mode === 'prompt'
-                ? await runPromptOnly(c)
-                : await runPipeline(c);
-          samples.push(sample);
-          if (VERBOSE) {
-            console.log(
-              `${pad(c.id, 16)} ${pad(mode, 9)} run ${run}  ${pad(String(sample.words), 5)} words  ` +
-                `penalty ${sample.penalty.toFixed(1)}  ${sample.verdict || '-'}  ` +
-                `unsupported ${sample.failures.UNSUPPORTED_CLAIM || 0}`,
-            );
-          }
-        } catch (err: any) {
-          samples.push({
-            caseId: c.id,
-            mode,
-            ok: false,
-            error: err?.message || String(err),
-            words: 0,
-            lengthOk: false,
-            adEcho: 0,
-            resumeEcho: 0,
-            generic: 0,
-            repetition: 0,
-            planCover: null,
-            forbidden: [],
-            failures: {},
-            verdict: null,
-            questions: 0,
-            repaired: false,
-            penalty: 0,
-          });
-          console.log(`${pad(c.id, 16)} ${pad(mode, 9)} run ${run} failed: ${err?.message}`);
-        }
-      }
+      for (const mode of modes) jobs.push({ c, run, mode });
     }
   }
+  const failures: string[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < jobs.length) {
+      // Read and bump without an await between them, so two workers can never
+      // claim the same job.
+      const job = jobs[next++];
+      const { c, run, mode } = job;
+      try {
+        const sample =
+          mode === 'legacy'
+            ? await runLegacy(c, legacy!)
+            : mode === 'prompt'
+              ? await runPromptOnly(c)
+              : await runPipeline(c);
+        samples.push(sample);
+        if (VERBOSE) {
+          console.log(
+            `${pad(c.id, 16)} ${pad(mode, 9)} run ${run}  ${pad(String(sample.words), 5)} words  ` +
+              `penalty ${sample.penalty.toFixed(1)}  ${sample.verdict || '-'}  ` +
+              `unsupported ${sample.failures.UNSUPPORTED_CLAIM || 0}`,
+          );
+        }
+      } catch (err: any) {
+        const message = err?.message || String(err);
+        failures.push(message);
+        samples.push({
+          caseId: c.id,
+          mode,
+          ok: false,
+          error: message,
+          words: 0,
+          lengthOk: false,
+          adEcho: 0,
+          resumeEcho: 0,
+          generic: 0,
+          repetition: 0,
+          planCover: null,
+          forbidden: [],
+          failures: {},
+          verdict: null,
+          questions: 0,
+          repaired: false,
+          penalty: 0,
+        });
+        console.log(`${pad(c.id, 16)} ${pad(mode, 9)} run ${run} failed: ${message}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
 
   for (const mode of modes) {
     summarise(
@@ -817,6 +1289,27 @@ async function main() {
           : 'Staged pipeline (plan → review → repair → validate → gate)',
     );
   }
+
+  const failed = samples.filter((s) => !s.ok);
+  if (failed.length) {
+    const distinct = [...new Set(failed.map((s) => s.error || 'unknown'))];
+    console.log(
+      `\n${failed.length} of ${samples.length} generations failed, ${distinct.length} distinct causes:`,
+    );
+    for (const reason of distinct.slice(0, 5)) console.log(`  ${reason.slice(0, 160)}`);
+  }
+
+  compareToBaseline(samples);
+
+  writeReport(samples, {
+    at: new Date().toISOString(),
+    endpoint: cassette() ? `cassette:${process.env.EVAL_CASSETTE}` : BASE_URL,
+    model: cassette() ? 'cassette' : MODEL,
+    modes,
+    cases: cases.length,
+    repeats: REPEATS,
+    concurrency: CONCURRENCY,
+  });
 
   console.log('\nRead the spread, not the best number: the target is a lower sd and a lower worst case.');
 }

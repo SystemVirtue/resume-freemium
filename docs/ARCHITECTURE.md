@@ -128,6 +128,18 @@ gap, a declared transferable move, thin and verbose CVs, a thin ad, an ad carryi
 injected instructions, and one where the ad asks for something the CV never
 establishes).
 
+The harness runs dev-side, in a terminal, and reaches no product AI. It points at any
+OpenAI-compatible endpoint — a free hosted model, or a model on the developer's own
+machine — through `EVAL_BASE_URL`, `EVAL_API_KEY` and `EVAL_MODEL`. This is deliberate
+on two counts. Rate limits are the failure mode of a live corpus run, so calls retry
+with backoff and honour `Retry-After` rather than failing a case, and `EVAL_CONCURRENCY`
+makes the politeness/wall-clock trade explicit instead of accidental. And testing
+through the product's own provider would be a worse experiment as well as a worse
+citizen: the model under test and the model serving users would be the same variable,
+so a regression could not be told apart from a provider-side change. There is
+deliberately no in-app harness; the run leaves `EVAL_OUT` JSON and Markdown reports on
+disk instead.
+
 The problem being measured is variance, so the harness reports a distribution — mean,
 worst, best, spread — and every mode is measured the same way: the letter is
 validated, put to the gate, and scored on measurable signals (ad echo, resume echo,

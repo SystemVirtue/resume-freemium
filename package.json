@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval": "vite-node scripts/eval-corpus.ts"
+    "eval": "vite-node scripts/eval-corpus.ts",
+    "eval:corpus": "vite-node scripts/mutate-corpus.ts --out eval-corpus/generated.json"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
